@@ -20,6 +20,7 @@ STATUS_ACTIVE = "active"
 STATUS_CONFLICTED = "conflicted"
 STATUS_RETIRED = "retired"
 STATUS_CLOSED_UPSTREAM = "closed-upstream"
+STATUS_PROPOSED = "proposed"  # staged by an agent/user; NEVER applied until approved
 
 # Statuses that still get (re)applied to the patched branch. Conflicted is
 # retried every update — upstream movement can resolve a conflict. Closed
@@ -39,6 +40,9 @@ class Patch:
     status: str = STATUS_ACTIVE
     added_at: str = ""
     last_result: str = ""
+    proposer: str = "cli"      # "cli" | "agent" — who staged/added it
+    note: str = ""             # free text from the proposer
+    review: dict | None = None # {"verdict","findings_count","model","reviewed_sha","at"}
 
 
 @dataclass
@@ -98,3 +102,6 @@ class Manifest:
 
     def appliable_patches(self) -> list[Patch]:
         return [p for p in self.patches if p.status in APPLIABLE_STATUSES]
+
+    def proposals(self) -> list[Patch]:
+        return [p for p in self.patches if p.status == STATUS_PROPOSED]
