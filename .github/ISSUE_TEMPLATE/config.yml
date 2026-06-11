@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help
+    url: https://github.com/botinate/odysseus-patches/discussions
+    about: Usage questions, "how do I…", and general discussion go in Discussions — not the issue tracker.
+  - name: Security vulnerability
+    url: https://github.com/botinate/odysseus-patches/security/advisories/new
+    about: Report vulnerabilities privately here, never as a public issue.

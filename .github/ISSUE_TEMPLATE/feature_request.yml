@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a change. Open this BEFORE writing a PR — unsolicited large PRs may be closed.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the problem first, not just the solution. A feature is
+        much more likely to land if we agree on the problem before any code.
+        **Do not open a large PR without a discussion here first.**
+  - type: checkboxes
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues/discussions and this isn't already proposed.
+          required: true
+  - type: textarea
+    attributes:
+      label: The problem
+      description: What are you actually trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed solution
+      description: How might it work? Rough is fine.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    attributes:
+      label: Scope
+      options:
+        - label: This is one focused change (not a bundle of unrelated features).
+          required: true

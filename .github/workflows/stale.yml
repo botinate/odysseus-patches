@@ -1,0 +1,34 @@
+name: Stale
+
+# Gently retire abandoned issues/PRs so the tracker stays a true backlog, not a
+# graveyard. Generous windows — this is a low-traffic project, not a churn mill.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # weekly, Monday 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-stale: 45
+          days-before-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: "pinned,security,roadmap"
+          exempt-pr-labels: "pinned,security"
+          stale-issue-message: >
+            This issue has been quiet for 45 days. It'll be closed in 14 days
+            if there's no further activity — comment to keep it open.
+          stale-pr-message: >
+            This PR has been quiet for 45 days. It'll be closed in 14 days if
+            there's no further activity.
+          close-issue-message: Closing as stale. Reopen if it's still relevant.
+          close-pr-message: Closing as stale. Reopen if you'd like to continue.

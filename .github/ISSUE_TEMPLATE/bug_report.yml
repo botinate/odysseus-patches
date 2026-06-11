@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in odysseus-patches doesn't work as expected.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please fill this in completely — issues
+        missing version/repro details get closed as not-actionable.
+  - type: checkboxes
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This is about odysseus-patches, not Odysseus itself.
+          required: true
+  - type: input
+    attributes:
+      label: odysseus-patches version
+      description: "`odysseus-patches --help` header, or your pipx/brew version"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: How did you install it?
+      options: ["pipx (PyPI)", "Homebrew", "pipx from git", "pip -e (clone)", "other"]
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: OS / Python
+      placeholder: "macOS 15 / Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands you ran (and which PR number, if relevant).
+      placeholder: |
+        1. odysseus-patches -C /path/to/odysseus add 3681
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened vs. what you expected
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Output / logs
+      description: Paste the relevant command output (redact tokens).
+      render: text

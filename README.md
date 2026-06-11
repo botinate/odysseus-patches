@@ -1,13 +1,29 @@
 # odysseus-patches
 
+[![PyPI](https://img.shields.io/pypi/v/odysseus-patches)](https://pypi.org/project/odysseus-patches/)
+[![Python](https://img.shields.io/pypi/pyversions/odysseus-patches)](https://pypi.org/project/odysseus-patches/)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+[![CI](https://github.com/botinate/odysseus-patches/actions/workflows/ci.yml/badge.svg)](https://github.com/botinate/odysseus-patches/actions/workflows/ci.yml)
+
 Apply open upstream [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus)
 PRs to your own install as tracked, SHA-pinned patches — re-applied across
 updates while the PR is open, retired automatically once it merges, flagged
-when it conflicts.
+when it conflicts. CLI + a web panel inside Odysseus's own UI.
 
 > **Community project — not affiliated with or endorsed by the Odysseus
 > maintainers.** If they ever want this in core, the migration offer stands:
 > AGPL-3.0 license and upstream CLI conventions are deliberate.
+
+## Quick start
+
+```bash
+pipx install odysseus-patches                    # install (or: brew install botinate/tap/odysseus-patches)
+cd /path/to/your/odysseus
+odysseus-patches add 3681                         # apply an open upstream PR, pinned to a SHA you review
+odysseus-patches install-ui                       # (optional) add a Patches panel to Odysseus's sidebar
+```
+
+Then restart Odysseus. Full install options and every command are below.
 
 ## Why
 
