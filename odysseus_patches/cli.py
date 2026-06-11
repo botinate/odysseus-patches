@@ -197,6 +197,17 @@ def cmd_install_hook(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from .status import build_status
+
+    checkout = find_checkout(args.checkout)
+    repo, manifest = load(checkout)
+    print(_json.dumps(build_status(repo, manifest), indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="odysseus-patches",
@@ -238,6 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_hook.add_argument("script", help="path to e.g. update_windows.bat")
     p_hook.set_defaults(func=cmd_install_hook)
+
+    p_status = sub.add_parser("status", help="machine-readable install patch status (JSON)")
+    p_status.set_defaults(func=cmd_status)
 
     return parser
 
