@@ -19,8 +19,8 @@ class OdysseusPatches < Formula
   desc "Apply and manage upstream Odysseus PR patches on a self-hosted install"
   homepage "https://github.com/botinate/odysseus-patches"
   # url + sha256 are filled per release from the PyPI sdist:
-  url "https://files.pythonhosted.org/packages/source/o/odysseus-patches/odysseus_patches-0.1.0.tar.gz"
-  sha256 "REPLACE_WITH_SDIST_SHA256"
+  url "https://files.pythonhosted.org/packages/5b/1a/ae9aaa68e89954f86e3ba984dd1603dca98b78e54dcd48b612b8a6fceac3/odysseus_patches-0.1.0.tar.gz"
+  sha256 "8217353c744e262a2f4d211f9bd34e7a3d0b13bb66de6d65b99b37e47ec47f1f"
   license "AGPL-3.0-or-later"
 
   depends_on "python@3.12"
