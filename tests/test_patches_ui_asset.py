@@ -77,3 +77,20 @@ def test_inject_script_tag_once_before_body():
 def test_inject_script_tag_leaves_non_html_untouched():
     mod = _load()
     assert mod.inject_script_tag("just text, no body") == "just text, no body"
+
+
+def test_decode_body_plain():
+    mod = _load()
+    assert mod._decode_body(b"<html></html>", "") == "<html></html>"
+
+
+def test_decode_body_gzip_roundtrip():
+    import gzip
+    mod = _load()
+    raw = b"<html><body>hi</body></html>"
+    assert mod._decode_body(gzip.compress(raw), "gzip") == raw.decode()
+
+
+def test_decode_body_bad_gzip_returns_none():
+    mod = _load()
+    assert mod._decode_body(b"not gzip bytes", "gzip") is None

@@ -57,6 +57,19 @@ def inject_script_tag(html: str) -> str:
     return html.replace("</body>", _SCRIPT_TAG + "</body>", 1)
 
 
+def _decode_body(body: bytes, content_encoding: str) -> str | None:
+    """HTML text of a (possibly gzip-compressed) response body. Returns None if
+    it can't be decoded — caller must then pass the original body through
+    untouched rather than corrupt it."""
+    if (content_encoding or "").lower() == "gzip":
+        import gzip
+        try:
+            body = gzip.decompress(body)
+        except Exception:
+            return None
+    return body.decode("utf-8", "replace")
+
+
 # --- FastAPI/Odysseus glue: imported lazily so this module loads without them ---
 
 def _checkout_root() -> str:
@@ -83,10 +96,11 @@ def setup_patches_ui_routes():
     async def status(request: Request):
         require_admin(request)
         code, out, err = await run(["status"])
+        available = _cli_path() is not None
         try:
-            return {"cli_available": _cli_path() is not None, "status": json.loads(out)}
+            return {"cli_available": available, "status": json.loads(out)}
         except (ValueError, TypeError):
-            if _cli_path() is None:
+            if not available:
                 return {"cli_available": False,
                         "hint": "Install odysseus-patches in this environment."}
             return {"cli_available": True, "status": None,
@@ -130,20 +144,26 @@ def setup_patches_ui_routes():
 
 def _install_middleware(app):
     from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import Response
 
     class _PanelInject(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
             resp = await call_next(request)
-            ctype = resp.headers.get("content-type", "")
-            if "text/html" not in ctype:
+            if "text/html" not in resp.headers.get("content-type", ""):
                 return resp
             body = b""
             async for chunk in resp.body_iterator:
-                body += chunk
-            html = inject_script_tag(body.decode("utf-8", "replace"))
-            from starlette.responses import Response
-            data = html.encode("utf-8")
+                body += chunk if isinstance(chunk, (bytes, bytearray)) else chunk.encode("utf-8")
+            text = _decode_body(body, resp.headers.get("content-encoding", ""))
+            if text is None:
+                # couldn't decode (unexpected encoding) — re-serve the original
+                # body + headers unchanged so we never corrupt the response
+                return Response(content=body, status_code=resp.status_code,
+                                headers=dict(resp.headers))
+            data = inject_script_tag(text).encode("utf-8")
             headers = dict(resp.headers)
+            headers.pop("content-encoding", None)
+            headers.pop("transfer-encoding", None)
             headers["content-length"] = str(len(data))
             return Response(content=data, status_code=resp.status_code,
                             headers=headers, media_type="text/html")
