@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from . import github
-from .gitops import APPLY_OK, GitError, GitRepo, rebuild_patched
+from .gitops import APPLY_EMPTY, APPLY_OK, GitError, GitRepo, rebuild_patched
 from .hooks import HookError
 from .manifest import Manifest, ManifestError, Patch
 from .update import UpdateError, run_update
@@ -76,11 +76,18 @@ def cmd_add(args: argparse.Namespace) -> int:
         )
     )
     results = rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
-    if results.get(args.pr) != APPLY_OK:
+    result = results.get(args.pr)
+    if result != APPLY_OK:
         manifest.remove(args.pr)
         rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
+        if result == APPLY_EMPTY:
+            raise CliError(
+                f"PR #{args.pr}'s changes are already in upstream "
+                f"{manifest.base_branch} — just run `odysseus-patches update`. "
+                "Nothing was changed."
+            )
         raise CliError(
-            f"PR #{args.pr} does not apply cleanly ({results.get(args.pr)}) — "
+            f"PR #{args.pr} does not apply cleanly ({result}) — "
             "it may need a rebase upstream. Nothing was changed."
         )
     patch = manifest.get(args.pr)
@@ -144,7 +151,7 @@ def cmd_update(args: argparse.Namespace) -> int:
             line += patch.last_result or "ok"
         if action.upgrade_available:
             line += "  [upgrade available: `odysseus-patches upgrade " + str(action.pr) + "`]"
-        if action.reason:
+        if action.reason and action.reason != patch.last_result:
             line += f"  ({action.reason})"
         print(line)
     if code == 10:
