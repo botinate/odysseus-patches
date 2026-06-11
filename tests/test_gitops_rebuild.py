@@ -80,3 +80,16 @@ def test_rebuild_is_idempotent(upstream, checkout):
     first = repo.rev_parse("HEAD^{tree}")
     rebuild_patched(repo, "dev", [tracked(7, sha)])
     assert repo.rev_parse("HEAD^{tree}") == first
+
+
+def test_rebuild_reestablishes_local_pin_ref(upstream, checkout):
+    # the pin ref must survive even when fetch never reran (offline updates):
+    # delete it, rebuild from the pinned sha (object is already local), and
+    # verify rebuild_patched re-established the ref
+    sha = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: something")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(7)
+    repo.run("update-ref", "-d", "refs/odypatches/pr/7")
+    results = rebuild_patched(repo, "dev", [tracked(7, sha)])
+    assert results == {7: APPLY_OK}
+    assert repo.rev_parse("refs/odypatches/pr/7") == sha
