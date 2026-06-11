@@ -11,12 +11,16 @@ import sys
 from pathlib import Path
 
 from . import github
+from .config import Config, ConfigError
 from .gitops import APPLY_EMPTY, APPLY_OK, GitError, GitRepo, rebuild_patched
 from .hooks import HookError
 from .manifest import Manifest, ManifestError, Patch
 from .update import UpdateError, run_update
+from . import review as review_mod
+from .review import HONESTY_NOTE, ReviewUnavailable, VERDICT_CLEAR, VERDICT_ERROR, VERDICT_FINDINGS, to_manifest_dict
 
 MANIFEST_RELPATH = Path("data") / "patches" / "manifest.json"
+CONFIG_RELPATH = Path("data") / "patches" / "config.json"
 
 
 class CliError(Exception):
@@ -215,6 +219,55 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    config = Config.load(checkout / CONFIG_RELPATH)
+    if args.action == "set":
+        config.set_value(args.key, args.value)
+        config.save()
+        print(f"set {args.key}")
+        return 0
+    import json
+    print(json.dumps(config.redacted_dict(), indent=2))
+    return 0
+
+
+def _print_review(result, upstream: str, pr: int) -> None:
+    print(f"AI review verdict: {result.verdict}")
+    for f in result.findings:
+        loc = f" [{f.file}]" if f.file else ""
+        print(f"  - {f.severity}{loc}: {f.description}")
+    if result.verdict == VERDICT_FINDINGS:
+        print(
+            "If this looks malicious, please report it on the PR thread: "
+            f"https://github.com/{upstream}/pull/{pr}"
+        )
+    if result.verdict == VERDICT_CLEAR:
+        print(HONESTY_NOTE)
+    if result.verdict == VERDICT_ERROR:
+        print(f"the model's answer was unusable ({result.detail}) — treat as unreviewed")
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    repo, manifest = load(checkout)
+    patch = manifest.get(args.pr)
+    if patch is None:
+        raise CliError(f"PR #{args.pr} is not tracked — `add` or `propose` it first")
+    config = Config.load(checkout / CONFIG_RELPATH)
+    repo.fetch_pr_head(args.pr)
+    base = repo.merge_base(manifest.base_branch, patch.pinned_sha)
+    diff = repo.run("diff", f"{base}..{patch.pinned_sha}")
+    try:
+        result = review_mod.run_review(diff, config)
+    except ReviewUnavailable as exc:
+        raise CliError(str(exc))
+    _print_review(result, manifest.upstream, args.pr)
+    patch.review = to_manifest_dict(result, patch.pinned_sha)
+    manifest.save()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="odysseus-patches",
@@ -260,6 +313,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_status = sub.add_parser("status", help="machine-readable install patch status (JSON)")
     p_status.set_defaults(func=cmd_status)
 
+    p_config = sub.add_parser("config", help="show or set tool config (Odysseus url/token)")
+    config_sub = p_config.add_subparsers(dest="action", required=True)
+    pc_set = config_sub.add_parser("set", help="set a config value")
+    pc_set.add_argument("key")
+    pc_set.add_argument("value")
+    pc_set.set_defaults(func=cmd_config)
+    pc_show = config_sub.add_parser("show", help="show config (token redacted)")
+    pc_show.set_defaults(func=cmd_config)
+
+    p_review = sub.add_parser("review", help="AI-review a tracked patch's diff via Odysseus")
+    p_review.add_argument("pr", type=int)
+    p_review.set_defaults(func=cmd_review)
+
     return parser
 
 
@@ -268,7 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CliError, ManifestError, GitError, UpdateError, HookError) as exc:
+    except (CliError, ManifestError, GitError, UpdateError, HookError, ConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
