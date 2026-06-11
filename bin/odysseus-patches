@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""Apply and manage upstream PR patches on this Odysseus install."""
+import sys
+from pathlib import Path
+
+try:
+    from odysseus_patches.cli import main
+except ImportError:
+    # running in-place from a source checkout (or upstream scripts/ after
+    # migration, with the lib vendored next to this file)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from odysseus_patches.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())
