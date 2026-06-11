@@ -38,6 +38,8 @@ def stage_proposal(
     reported in the message but never blocks staging — the review re-runs at
     approval time anyway.
     """
+    if run_review and review_runner is None:
+        raise ValueError("run_review=True requires a review_runner")
     if fetch_info is None:
         fetch_info = github.fetch_pr_info
     existing = manifest.get(pr)
@@ -52,7 +54,7 @@ def stage_proposal(
     sha = repo.fetch_pr_head(pr)
     review_dict = None
     review_note = ""
-    if run_review and review_runner is not None:
+    if run_review:
         base = repo.merge_base(manifest.base_branch, sha)
         diff = repo.run("diff", f"{base}..{sha}")
         try:

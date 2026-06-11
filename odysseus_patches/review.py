@@ -216,5 +216,5 @@ def to_manifest_dict(result: ReviewResult, reviewed_sha: str) -> dict:
         "findings_count": len(result.findings),
         "reviewed_sha": reviewed_sha,
         "at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "model": "",
+        "model": "",  # /v1/chat doesn't expose which model Odysseus routed to; empty = unknown
     }

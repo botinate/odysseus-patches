@@ -101,3 +101,12 @@ def test_stage_offline_raises(upstream, checkout):
             run_review=False, note="", proposer="agent",
             fetch_info=lambda u, n: None,
         )
+
+
+def test_run_review_without_runner_raises(upstream, checkout):
+    with pytest.raises(ValueError, match="review_runner"):
+        stage_proposal(
+            GitRepo(checkout), manifest_of(checkout), 7,
+            run_review=True, note="", proposer="agent",
+            fetch_info=lambda u, n: None,
+        )
