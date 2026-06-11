@@ -63,7 +63,7 @@ class Upstream:
         git("add", "-A", cwd=self.work)
         git("commit", "-m", message, cwd=self.work)
         sha = git("rev-parse", "HEAD", cwd=self.work)
-        git("push", "origin", f"{branch}:refs/pull/{pr}/head", cwd=self.work)
+        git("push", "--force", "origin", f"{branch}:refs/pull/{pr}/head", cwd=self.work)
         git("checkout", "dev", cwd=self.work)
         return sha
 

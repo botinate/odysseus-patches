@@ -124,6 +124,70 @@ def cmd_remove(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    repo, manifest = load(checkout)
+    report, code = run_update(repo, manifest)
+    if report.pulled:
+        print(f"pulled {manifest.base_branch}: {report.old_base[:10]} -> {report.new_base[:10]}")
+    else:
+        print(f"{manifest.base_branch} already up to date")
+    for action in report.actions:
+        patch = manifest.get(action.pr)
+        line = f"PR #{action.pr}: "
+        if patch.status == "retired":
+            line += f"retired ({patch.last_result})"
+        elif patch.status == "conflicted":
+            line += "CONFLICT — run `odysseus-patches show " + str(action.pr) + "`"
+        else:
+            line += patch.last_result or "ok"
+        if action.upgrade_available:
+            line += "  [upgrade available: `odysseus-patches upgrade " + str(action.pr) + "`]"
+        if action.reason:
+            line += f"  ({action.reason})"
+        print(line)
+    if code == 10:
+        print("done — rebuild/restart Odysseus to run the updated code")
+    elif code == 20:
+        print("done with warnings — at least one patch needs attention")
+    return code
+
+
+def cmd_upgrade(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    repo, manifest = load(checkout)
+    patch = manifest.get(args.pr)
+    if patch is None:
+        raise CliError(f"PR #{args.pr} is not tracked")
+    info = github.fetch_pr_info(manifest.upstream, args.pr)
+    if info is None:
+        raise CliError("Could not reach GitHub — upgrading requires reviewing the new commits.")
+    new_sha = repo.fetch_pr_head(args.pr)
+    if new_sha == patch.pinned_sha:
+        print(f"PR #{args.pr} is up to date (pinned {patch.pinned_sha[:10]})")
+        return 0
+    print(f"PR #{args.pr} moved: {patch.pinned_sha[:10]} -> {new_sha[:10]}")
+    print("incremental diff:")
+    print(repo.run("diff", f"{patch.pinned_sha}..{new_sha}"))
+    if not confirm("Adopt the new commits?", args.yes):
+        print("aborted")
+        return 0
+    old_sha = patch.pinned_sha
+    patch.pinned_sha = new_sha
+    results = rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
+    if results.get(args.pr) != APPLY_OK:
+        patch.pinned_sha = old_sha
+        rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
+        raise CliError(
+            f"upgraded PR #{args.pr} does not apply cleanly — kept the old pin."
+        )
+    patch.title = info.title
+    patch.last_result = "applied-clean"
+    manifest.save()
+    print(f"re-pinned PR #{args.pr} to {new_sha[:10]}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="odysseus-patches",
@@ -151,6 +215,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_remove = sub.add_parser("remove", help="untrack a patch and rebuild without it")
     p_remove.add_argument("pr", type=int)
     p_remove.set_defaults(func=cmd_remove)
+
+    p_update = sub.add_parser("update", help="pull upstream and reconcile every patch")
+    p_update.set_defaults(func=cmd_update)
+
+    p_upgrade = sub.add_parser("upgrade", help="re-pin a patch to its PR's new head")
+    p_upgrade.add_argument("pr", type=int)
+    p_upgrade.add_argument("--yes", action="store_true", help="skip confirmation")
+    p_upgrade.set_defaults(func=cmd_upgrade)
 
     return parser
 
