@@ -8,9 +8,13 @@ extension's own test env). Stdlib helpers below are unit-tested there.
 All operations shell out to the odysseus-patches CLI, so this panel inherits
 every tested CLI behavior (review gate, rollback, branch-safety) — nothing is
 reimplemented.
-"""
-from __future__ import annotations
 
+NOTE: deliberately NO `from __future__ import annotations`. FastAPI must see the
+route handlers' `request: Request` annotation as the real class to inject it;
+with stringized annotations it can't resolve `Request` (imported lazily inside
+the factory, not in module globals) and 422s every route. The `X | None` hints
+below are evaluated natively on Python 3.10+ (Odysseus requires 3.11+).
+"""
 import asyncio
 import json
 import os
