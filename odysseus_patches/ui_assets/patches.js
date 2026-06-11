@@ -16,6 +16,15 @@
     return res.json();
   }
 
+  async function notify(msg, isError) {
+    try {
+      const ui = await import('/static/js/ui.js');
+      if (isError && ui.showError) return ui.showError(String(msg));
+      if (ui.showToast) return ui.showToast(String(msg));
+    } catch (e) { /* fall through */ }
+    if (isError) console.error(msg); else console.log(msg);
+  }
+
   function ensureModal() {
     if ($('odypatch-modal')) return;
     const m = document.createElement('div');
@@ -27,6 +36,21 @@
           <button class="close-btn" id="odypatch-close" aria-label="Close">✖</button></div>
         <div class="modal-body">
           <div class="admin-card" style="border-left:3px solid var(--red)">Patches run with full access to your personal AI system. Apply only PRs you trust or have reviewed.</div>
+          <div class="admin-card" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <input id="odypatch-pr" type="number" min="1" placeholder="PR #" style="width:90px"/>
+            <label style="display:inline-flex;align-items:center;gap:4px"><input id="odypatch-review" type="checkbox"/> review</label>
+            <button id="odypatch-add">Add PR</button>
+            <span style="flex:1"></span>
+            <button id="odypatch-settings-btn">Settings</button>
+          </div>
+          <div id="odypatch-settings" class="admin-card hidden" style="margin-bottom:8px">
+            <div style="opacity:.7;margin-bottom:4px">Odysseus API token (for AI review)</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input id="odypatch-token" type="password" placeholder="paste token" style="flex:1;min-width:160px"/>
+              <button id="odypatch-token-save">Save</button>
+              <span id="odypatch-token-state" style="opacity:.6"></span>
+            </div>
+          </div>
           <div id="odypatch-content"></div>
         </div>
       </div>`;
@@ -35,6 +59,38 @@
     $('odypatch-content').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-act]');
       if (b) onAction(b.dataset.act, b.dataset.pr);
+    });
+    $('odypatch-add').addEventListener('click', async () => {
+      const pr = Number($('odypatch-pr').value);
+      if (!pr) { notify('Enter a PR number', true); return; }
+      const review = $('odypatch-review').checked;
+      try {
+        const r = await api('/api/patches/add', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pr, review }) });
+        notify(r.ok ? `Added PR #${pr} — restart Odysseus to apply` : (r.message || 'Add failed'), !r.ok);
+      } catch (e) { notify('Add failed', true); }
+      $('odypatch-pr').value = '';
+      render();
+    });
+    $('odypatch-settings-btn').addEventListener('click', async () => {
+      const s = $('odypatch-settings'); s.classList.toggle('hidden');
+      if (!s.classList.contains('hidden')) {
+        try { const c = await api('/api/patches/config');
+          $('odypatch-token-state').textContent = c.config ? `current: ${c.config.api_token}` : ''; }
+        catch (e) {}
+      }
+    });
+    $('odypatch-token-save').addEventListener('click', async () => {
+      const t = $('odypatch-token').value.trim();
+      if (!t) { notify('Enter a token', true); return; }
+      try {
+        const r = await api('/api/patches/config', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_token: t }) });
+        notify(r.ok ? 'Token saved' : (r.message || 'Save failed'), !r.ok);
+        $('odypatch-token').value = '';
+      } catch (e) { notify('Save failed', true); }
     });
   }
 
@@ -48,7 +104,8 @@
          <button data-act="reject" data-pr="${p.pr}">Reject</button>
          <button data-act="review" data-pr="${p.pr}">Review</button>
          <button data-act="diff" data-pr="${p.pr}">Diff</button>`
-      : `<button data-act="remove" data-pr="${p.pr}">Remove</button>
+      : `<button data-act="upgrade" data-pr="${p.pr}">Upgrade</button>
+         <button data-act="remove" data-pr="${p.pr}">Remove</button>
          <button data-act="review" data-pr="${p.pr}">Review</button>
          <button data-act="diff" data-pr="${p.pr}">Diff</button>`;
     return `<div class="admin-card" style="margin-bottom:8px">
@@ -98,8 +155,17 @@
       return;
     }
     if (act === 'update') {
-      try { const r = await api('/api/patches/update', { method: 'POST' }); alert(r.report || r.message || 'Done.'); }
-      catch (e) { alert('Update failed.'); }
+      try { const r = await api('/api/patches/update', { method: 'POST' }); notify(r.report || r.message || 'Update finished.'); }
+      catch (e) { notify('Update failed.', true); }
+      return render();
+    }
+    if (act === 'upgrade') {
+      try {
+        const r = await api('/api/patches/upgrade', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pr: Number(prVal) }) });
+        notify(r.message || (r.ok ? 'Upgraded — restart to apply' : 'Upgrade failed'), !r.ok);
+      } catch (e) { notify('Upgrade failed', true); }
       return render();
     }
     if ((act === 'remove' || act === 'reject') && !confirm(`${act} patch #${prVal}?`)) return;
@@ -107,8 +173,8 @@
       const r = await api(`/api/patches/${act}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pr: Number(prVal) }) });
-      if (r.message) alert(r.message);
-    } catch (e) { alert('Action failed.'); }
+      if (r.message) notify(r.message);
+    } catch (e) { notify('Action failed.', true); }
     return render();
   }
 
