@@ -36,9 +36,11 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
             f"the 'patched' branch has {len(foreign)} commit(s) that are not "
             "managed patches — they will be discarded on the next rebuild; "
             "move them to a real branch")
-    # failure states determine health
+    # failure states determine health and whether action is needed
     healthy = not attention
+    pending_action = bool(attention)
     # informational guidance: warn users not to develop on the generated branch
+    # (does NOT affect healthy or pending_action — purely informational)
     if on_patched:
         attention.append(
             "you are on the generated 'patched' branch — don't develop here; "
@@ -49,6 +51,7 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
             f"{len(proposals)} proposal(s) awaiting approval — "
             "`odysseus-patches approve <pr>` or reject"
         )
+        pending_action = True
     return {
         "upstream": manifest.upstream,
         "base_branch": manifest.base_branch,
@@ -57,5 +60,5 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
         "patches": [asdict(p) for p in manifest.patches],
         "attention": attention,
         "healthy": healthy,
-        "pending_action": bool(attention),
+        "pending_action": pending_action,
     }

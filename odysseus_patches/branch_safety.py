@@ -23,7 +23,11 @@ def foreign_commits_on_patched(repo: GitRepo, base_branch: str) -> list[str]:
     Empty when `patched` doesn't exist."""
     if not repo.run("branch", "--list", PATCHED_BRANCH).strip():
         return []
-    out = repo.run("log", "--format=%h %s", f"{base_branch}..{PATCHED_BRANCH}")
+    from .gitops import GitError
+    try:
+        out = repo.run("log", "--format=%h %s", f"{base_branch}..{PATCHED_BRANCH}")
+    except GitError:
+        return []
     foreign = []
     for line in out.splitlines():
         line = line.strip()
