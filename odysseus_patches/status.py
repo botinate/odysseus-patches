@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+from .branch_safety import foreign_commits_on_patched
 from .gitops import GitRepo, PATCHED_BRANCH
 from .manifest import Manifest, STATUS_CONFLICTED, STATUS_PROPOSED
 
@@ -28,8 +29,20 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
                 f"the patched branch is built on an outdated {manifest.base_branch} "
                 "— run `odysseus-patches update` to rebase the patches"
             )
+    # foreign (non-managed) commits on patched are a data-loss risk → failure
+    foreign = foreign_commits_on_patched(repo, manifest.base_branch)
+    if foreign:
+        attention.append(
+            f"the 'patched' branch has {len(foreign)} commit(s) that are not "
+            "managed patches — they will be discarded on the next rebuild; "
+            "move them to a real branch")
     # failure states determine health
     healthy = not attention
+    # informational guidance: warn users not to develop on the generated branch
+    if on_patched:
+        attention.append(
+            "you are on the generated 'patched' branch — don't develop here; "
+            "create feature branches from '" + manifest.base_branch + "'")
     proposals = [p for p in manifest.patches if p.status == STATUS_PROPOSED]
     if proposals:
         attention.append(
