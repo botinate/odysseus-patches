@@ -66,7 +66,11 @@ def run_update(
     repo: GitRepo,
     manifest: Manifest,
     fetch_info: FetchInfo | None = None,
+    force: bool = False,
 ) -> tuple[UpdateReport, int]:
+    from .branch_safety import check_branch_safety
+    check_branch_safety(repo, manifest.base_branch, force=force)
+
     if fetch_info is None:
         # resolved at call time (not def time) so tests can monkeypatch
         # odysseus_patches.github.fetch_pr_info and the CLI picks it up

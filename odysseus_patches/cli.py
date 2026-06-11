@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from . import github
+from .branch_safety import check_branch_safety, BranchSafetyError
 from .config import Config, ConfigError
 from .gitops import APPLY_EMPTY, APPLY_OK, GitError, GitRepo, rebuild_patched
 from .hooks import HookError
@@ -54,6 +55,7 @@ def confirm(prompt: str, assume_yes: bool) -> bool:
 def cmd_add(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
+    check_branch_safety(repo, manifest.base_branch, force=getattr(args, "force", False))
     info = github.fetch_pr_info(manifest.upstream, args.pr)
     if info is None:
         raise CliError(
@@ -139,6 +141,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_remove(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
+    check_branch_safety(repo, manifest.base_branch, force=getattr(args, "force", False))
     manifest.remove(args.pr)
     rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
     manifest.save()
@@ -149,7 +152,7 @@ def cmd_remove(args: argparse.Namespace) -> int:
 def cmd_update(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
-    report, code = run_update(repo, manifest)
+    report, code = run_update(repo, manifest, force=getattr(args, "force", False))
     if report.pulled:
         print(f"pulled {manifest.base_branch}: {report.old_base[:10]} -> {report.new_base[:10]}")
     else:
@@ -178,6 +181,7 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_upgrade(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
+    check_branch_safety(repo, manifest.base_branch, force=getattr(args, "force", False))
     patch = manifest.get(args.pr)
     if patch is None:
         raise CliError(f"PR #{args.pr} is not tracked")
@@ -374,6 +378,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
 def cmd_approve(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
+    check_branch_safety(repo, manifest.base_branch, force=getattr(args, "force", False))
     patch = manifest.get(args.pr)
     if patch is None or patch.status != STATUS_PROPOSED:
         raise CliError(
@@ -466,6 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--show", action="store_true", help="print the full diff before confirming")
     p_add.add_argument("--review", action="store_true", help="AI-review the diff before applying")
     p_add.add_argument("--no-review", action="store_true", help="skip the review question")
+    p_add.add_argument("--force", action="store_true", help="override branch-safety guards")
     p_add.set_defaults(func=cmd_add)
 
     p_list = sub.add_parser("list", help="show tracked patches and their status")
@@ -477,9 +483,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_remove = sub.add_parser("remove", help="untrack a patch and rebuild without it")
     p_remove.add_argument("pr", type=int)
+    p_remove.add_argument("--force", action="store_true", help="override branch-safety guards")
     p_remove.set_defaults(func=cmd_remove)
 
     p_update = sub.add_parser("update", help="pull upstream and reconcile every patch")
+    p_update.add_argument("--force", action="store_true", help="override branch-safety guards")
     p_update.set_defaults(func=cmd_update)
 
     p_upgrade = sub.add_parser("upgrade", help="re-pin a patch to its PR's new head")
@@ -487,6 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_upgrade.add_argument("--yes", action="store_true", help="skip confirmation")
     p_upgrade.add_argument("--review", action="store_true", help="AI-review the incremental diff")
     p_upgrade.add_argument("--no-review", action="store_true", help="skip the review question")
+    p_upgrade.add_argument("--force", action="store_true", help="override branch-safety guards")
     p_upgrade.set_defaults(func=cmd_upgrade)
 
     p_hook = sub.add_parser(
@@ -523,6 +532,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_approve.add_argument("--show", action="store_true", help="print the full diff")
     p_approve.add_argument("--review", action="store_true", help="AI-review before applying")
     p_approve.add_argument("--no-review", action="store_true", help="skip the review question")
+    p_approve.add_argument("--force", action="store_true", help="override branch-safety guards")
     p_approve.set_defaults(func=cmd_approve)
 
     p_reject = sub.add_parser("reject", help="drop a staged proposal")
@@ -544,7 +554,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CliError, ManifestError, GitError, UpdateError, HookError, ConfigError, ProposalError) as exc:
+    except (CliError, ManifestError, GitError, UpdateError, HookError, ConfigError, ProposalError, BranchSafetyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
