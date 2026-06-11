@@ -35,6 +35,23 @@ def _validate(root: Path) -> Path:
     return root
 
 
+def strip_loader_block(app_py: Path) -> bool:
+    """Remove the UI loader block from app.py if present. Returns True if it
+    was there (and removed). Leaves the file's other content intact."""
+    app_py = Path(app_py)
+    if not app_py.exists():
+        return False
+    text = app_py.read_text(encoding="utf-8")
+    if LOADER_BEGIN not in text or LOADER_END not in text:
+        return False
+    start = text.index(LOADER_BEGIN)
+    if start > 0 and text[start - 1] == "\n":
+        start -= 1
+    end = text.index(LOADER_END) + len(LOADER_END)
+    app_py.write_text((text[:start] + text[end:]).rstrip("\n") + "\n", encoding="utf-8")
+    return True
+
+
 def install_ui(root: Path, overwrite: bool = True) -> list[str]:
     root = _validate(root)
     changed: list[str] = []
@@ -65,17 +82,6 @@ def uninstall_ui(root: Path) -> list[str]:
         if p.exists():
             p.unlink()
             changed.append(rel)
-    app_py = root / "app.py"
-    if app_py.exists():
-        text = app_py.read_text(encoding="utf-8")
-        if LOADER_BEGIN in text and LOADER_END in text:
-            start = text.index(LOADER_BEGIN)
-            end = text.index(LOADER_END) + len(LOADER_END)
-            cut_start = start
-            if cut_start > 0 and text[cut_start - 1] == "\n":
-                cut_start -= 1
-            new = text[:cut_start] + text[end:]
-            new = new.rstrip("\n") + "\n"
-            app_py.write_text(new, encoding="utf-8")
-            changed.append("app.py (loader line)")
+    if strip_loader_block(root / "app.py"):
+        changed.append("app.py (loader line)")
     return changed

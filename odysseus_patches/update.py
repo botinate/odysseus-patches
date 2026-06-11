@@ -74,18 +74,9 @@ def run_update(
 
     # Strip the UI loader block before the dirty-tree guard so that our own
     # managed edits to app.py never look like user uncommitted work.
-    from .installer import LOADER_BEGIN, LOADER_END
+    from .installer import strip_loader_block
     _app_py = repo.root / "app.py"
-    _ui_installed = False
-    if _app_py.exists():
-        _t = _app_py.read_text(encoding="utf-8")
-        if LOADER_BEGIN in _t and LOADER_END in _t:
-            _ui_installed = True
-            _s = _t.index(LOADER_BEGIN)
-            if _s > 0 and _t[_s - 1] == "\n":
-                _s -= 1
-            _e = _t.index(LOADER_END) + len(LOADER_END)
-            _app_py.write_text((_t[:_s] + _t[_e:]).rstrip("\n") + "\n", encoding="utf-8")
+    _ui_installed = strip_loader_block(_app_py)
 
     try:
         # Check for changes to tracked files only; untracked files (e.g. the
@@ -153,5 +144,8 @@ def run_update(
             try:
                 from .installer import install_ui
                 install_ui(repo.root, overwrite=True)
-            except Exception:
-                pass
+            except Exception as _exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "odysseus-patches: failed to reapply UI loader after update "
+                    "(%s) — re-run `odysseus-patches install-ui`", _exc)
