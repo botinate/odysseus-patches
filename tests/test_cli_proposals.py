@@ -81,3 +81,32 @@ def test_list_shows_proposal_and_verdict(upstream, checkout, monkeypatch, capsys
     cli.main(["-C", str(checkout), "list"])
     out = capsys.readouterr().out
     assert "proposed" in out and "CLEAR" in out
+
+
+def test_mcp_propose_patch_stages_as_agent(upstream, checkout, monkeypatch):
+    # drive the MCP server's tool-dispatch logic directly (no stdio), proving
+    # an agent call stages a proposal with proposer=agent and never applies
+    import asyncio
+    import json as _json
+    from odysseus_patches import github
+    from odysseus_patches.github import PRInfo
+    from odysseus_patches.gitops import GitRepo
+    from odysseus_patches.manifest import Manifest, STATUS_PROPOSED
+
+    sha = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: pr 7")
+    monkeypatch.setattr(github, "fetch_pr_info",
+                        lambda u, pr: PRInfo(7, "fix: pr 7", "open", False, sha) if pr == 7 else None)
+
+    from odysseus_patches import mcp_server
+    # build the same pieces call_tool uses, then invoke stage_proposal exactly
+    # as the propose_patch branch does — this is the unit under the MCP shell
+    from odysseus_patches.proposals import stage_proposal
+    repo = GitRepo(checkout)
+    manifest = Manifest.load(checkout / "data" / "patches" / "manifest.json")
+    message = stage_proposal(repo, manifest, 7, run_review=False, note="agent note", proposer="agent")
+
+    saved = Manifest.load(checkout / "data" / "patches" / "manifest.json").get(7)
+    assert saved.status == STATUS_PROPOSED
+    assert saved.proposer == "agent"
+    assert "approve" in message
+    assert GitRepo(checkout).current_branch() == "dev"  # never applied

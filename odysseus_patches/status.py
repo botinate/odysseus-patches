@@ -16,12 +16,6 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
             attention.append(
                 f"PR #{p.pr} is conflicted — `odysseus-patches show {p.pr}` for details"
             )
-    proposals = [p for p in manifest.patches if p.status == STATUS_PROPOSED]
-    if proposals:
-        attention.append(
-            f"{len(proposals)} proposal(s) awaiting approval — "
-            "`odysseus-patches approve <pr>` or reject"
-        )
     if appliable and not on_patched:
         attention.append(
             "patches are tracked but the checkout is not running the patched "
@@ -34,6 +28,14 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
                 f"the patched branch is built on an outdated {manifest.base_branch} "
                 "— run `odysseus-patches update` to rebase the patches"
             )
+    # failure states determine health
+    healthy = not attention
+    proposals = [p for p in manifest.patches if p.status == STATUS_PROPOSED]
+    if proposals:
+        attention.append(
+            f"{len(proposals)} proposal(s) awaiting approval — "
+            "`odysseus-patches approve <pr>` or reject"
+        )
     return {
         "upstream": manifest.upstream,
         "base_branch": manifest.base_branch,
@@ -41,5 +43,6 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
         "patch_count": len(manifest.patches),
         "patches": [asdict(p) for p in manifest.patches],
         "attention": attention,
-        "healthy": not attention,
+        "healthy": healthy,
+        "pending_action": bool(attention),
     }

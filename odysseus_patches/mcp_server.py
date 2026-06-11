@@ -33,7 +33,7 @@ def main() -> int:
     from .config import Config
     from .gitops import GitRepo
     from .manifest import Manifest
-    from .proposals import ProposalError, stage_proposal
+    from .proposals import stage_proposal
     from .status import build_status
     from . import review as review_mod
 
@@ -113,7 +113,8 @@ def main() -> int:
                     run_review=run_review, note=note, proposer="agent",
                     review_runner=review_runner,
                 )
-            except ProposalError as exc:
+            except Exception as exc:
+                # never crash the stdio server — the agent gets a readable error
                 message = f"could not stage proposal: {exc}"
             return [TextContent(type="text", text=message)]
         else:
