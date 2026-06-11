@@ -1,5 +1,6 @@
 import pytest
 
+from tests.conftest import git
 from odysseus_patches.github import PRInfo
 from odysseus_patches.gitops import GitRepo, PATCHED_BRANCH
 from odysseus_patches.manifest import (
@@ -97,3 +98,27 @@ def test_no_patches_plain_update(upstream, checkout):
     assert code == EXIT_OK
     assert repo.current_branch() == "dev"
     assert (checkout / "src" / "other.py").exists()
+
+
+def test_undetected_merged_patch_retires_via_empty_pick(upstream, checkout):
+    # PR content lands upstream split across two commits: GitHub is offline,
+    # patch-id can't match (different split), only the empty cherry-pick
+    # detects it. The patch must retire and the artifact branch must be
+    # cleaned up by the post-empty re-rebuild.
+    sha = upstream.open_pr(7, "src/fix.py", "FIX = True\nEXTRA = 2\n", "fix: pr 7")
+    upstream.commit_on_dev("src/fix.py", "FIX = True\n", "land part 1")
+    upstream.commit_on_dev("src/fix.py", "FIX = True\nEXTRA = 2\n", "land part 2")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(7)
+    manifest = Manifest.load(checkout / "data" / "patches" / "manifest.json")
+    manifest.add(Patch(pr=7, title="fix: pr 7", pinned_sha=sha))
+    manifest.save()
+
+    report, code = run_update(repo, manifest, fetch_info=lambda u, p: None)
+
+    assert manifest.get(7).status == STATUS_RETIRED
+    assert manifest.get(7).last_result == "already-upstream"
+    assert code == EXIT_REBUILD
+    assert repo.current_branch() == "dev"
+    branches = git("branch", "--list", PATCHED_BRANCH, cwd=checkout)
+    assert branches == ""
