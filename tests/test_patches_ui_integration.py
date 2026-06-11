@@ -120,3 +120,4 @@ def test_config_get_runs_config_show(recording_client):
 
 def test_config_set_rejects_empty_token(recording_client):
     assert recording_client.post("/api/patches/config", json={"api_token": ""}).status_code == 422
+    assert recording_client.post("/api/patches/config", json={"api_token": "   "}).status_code == 422

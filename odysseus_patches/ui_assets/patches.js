@@ -173,7 +173,7 @@
       const r = await api(`/api/patches/${act}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pr: Number(prVal) }) });
-      if (r.message) notify(r.message);
+      notify(r.message || (r.ok ? `${act} #${prVal} done` : `${act} failed`), !r.ok);
     } catch (e) { notify('Action failed.', true); }
     return render();
   }
