@@ -64,3 +64,59 @@ def test_approve_route_maps_args(client):
 def test_diff_route_typed_pr(client):
     assert client.get("/api/patches/diff?pr=7").status_code == 200
     assert client.get("/api/patches/diff?pr=abc").status_code == 422  # pr really is validated
+
+
+@pytest.fixture
+def recording_client(monkeypatch):
+    import types as _t, sys as _s
+    fake_core = _t.ModuleType("core"); fake_cm = _t.ModuleType("core.middleware")
+    fake_cm.require_admin = lambda request: None
+    monkeypatch.setitem(_s.modules, "core", fake_core)
+    monkeypatch.setitem(_s.modules, "core.middleware", fake_cm)
+    mod = _load_asset()
+    calls = []
+    def fake_run(checkout, args):
+        calls.append(args)
+        return 0, '{"patches": []}', ""
+    monkeypatch.setattr(mod, "_run_cli", fake_run)
+    monkeypatch.setattr(mod, "_cli_command", lambda: ["/bin/odysseus-patches"])
+    app = FastAPI(); app.include_router(mod.setup_patches_ui_routes())
+    c = TestClient(app, raise_server_exceptions=False)
+    c._calls = calls
+    return c
+
+
+def test_add_route_maps_args(recording_client):
+    r = recording_client.post("/api/patches/add", json={"pr": 7})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert recording_client._calls[-1] == ["add", "7", "--yes"]
+
+
+def test_add_route_with_review(recording_client):
+    recording_client.post("/api/patches/add", json={"pr": 7, "review": True})
+    assert recording_client._calls[-1] == ["add", "7", "--yes", "--review"]
+
+
+def test_add_route_requires_int_pr(recording_client):
+    assert recording_client.post("/api/patches/add", json={"pr": "x"}).status_code == 422
+
+
+def test_upgrade_route_maps_args(recording_client):
+    recording_client.post("/api/patches/upgrade", json={"pr": 9})
+    assert recording_client._calls[-1] == ["upgrade", "9", "--yes"]
+
+
+def test_config_set_maps_args(recording_client):
+    r = recording_client.post("/api/patches/config", json={"api_token": "sk-abc"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert recording_client._calls[-1] == ["config", "set", "api_token", "sk-abc"]
+
+
+def test_config_get_runs_config_show(recording_client):
+    r = recording_client.get("/api/patches/config")
+    assert r.status_code == 200
+    assert recording_client._calls[-1] == ["config", "show"]
+
+
+def test_config_set_rejects_empty_token(recording_client):
+    assert recording_client.post("/api/patches/config", json={"api_token": ""}).status_code == 422

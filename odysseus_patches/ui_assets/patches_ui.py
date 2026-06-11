@@ -112,6 +112,13 @@ def setup_patches_ui_routes():
     class PrBody(BaseModel):
         pr: int
 
+    class AddBody(BaseModel):
+        pr: int
+        review: bool = False
+
+    class ConfigBody(BaseModel):
+        api_token: str
+
     async def run(args):
         return await asyncio.to_thread(_run_cli, root, args)
 
@@ -161,6 +168,41 @@ def setup_patches_ui_routes():
         require_admin(request)
         code, out, err = await run(["update"])
         return {"exit_code": code, "report": out, "ok": code in (0, 10), "message": _first_line(err)}
+
+    @router.post("/api/patches/add")
+    async def add(request: Request, body: AddBody):
+        require_admin(request)
+        args = ["add", str(body.pr), "--yes"]
+        if body.review:
+            args.append("--review")
+        code, out, err = await run(args)
+        return {"ok": code == 0, "message": _first_line(err) or _first_line(out), "exit_code": code}
+
+    @router.post("/api/patches/upgrade")
+    async def upgrade(request: Request, body: PrBody):
+        require_admin(request)
+        code, out, err = await run(["upgrade", str(body.pr), "--yes"])
+        return {"ok": code == 0, "message": _first_line(err) or _first_line(out), "exit_code": code}
+
+    @router.get("/api/patches/config")
+    async def config_show(request: Request):
+        require_admin(request)
+        import json as _json
+        code, out, err = await run(["config", "show"])
+        try:
+            return {"ok": True, "config": _json.loads(out)}
+        except (ValueError, TypeError):
+            return {"ok": code == 0, "config": None, "message": _first_line(err)}
+
+    @router.post("/api/patches/config")
+    async def config_set(request: Request, body: ConfigBody):
+        require_admin(request)
+        token = body.api_token.strip()
+        if not token:
+            from fastapi import HTTPException
+            raise HTTPException(422, "api_token is required")
+        code, out, err = await run(["config", "set", "api_token", token])
+        return {"ok": code == 0, "message": _first_line(out) or _first_line(err), "exit_code": code}
 
     return router
 
