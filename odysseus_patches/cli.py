@@ -68,6 +68,9 @@ def cmd_add(args: argparse.Namespace) -> int:
     print(repo.diffstat(base, sha))
     if args.show:
         print(repo.run("diff", f"{base}..{sha}"))
+    proceed, review_dict = _review_gate(repo, manifest, args.pr, base, sha, args)
+    if not proceed:
+        return 1 if (review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
     if not confirm("Apply this patch?", args.yes):
         print("aborted")
         return 0
@@ -96,6 +99,8 @@ def cmd_add(args: argparse.Namespace) -> int:
         )
     patch = manifest.get(args.pr)
     patch.last_result = "applied-clean"
+    if review_dict:
+        patch.review = review_dict
     manifest.save()
     print(f"applied PR #{args.pr} — restart/rebuild Odysseus to run it")
     return 0
@@ -181,6 +186,11 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     print(f"PR #{args.pr} moved: {patch.pinned_sha[:10]} -> {new_sha[:10]}")
     print("incremental diff:")
     print(repo.run("diff", f"{patch.pinned_sha}..{new_sha}"))
+    if patch.review and patch.review.get("reviewed_sha") != new_sha:
+        print("note: the cached AI review covers the OLD pin — these new commits are unreviewed")
+    proceed, review_dict = _review_gate(repo, manifest, args.pr, patch.pinned_sha, new_sha, args)
+    if not proceed:
+        return 1 if (review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
     if not confirm("Adopt the new commits?", args.yes):
         print("aborted")
         return 0
@@ -195,6 +205,10 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         )
     patch.title = info.title
     patch.last_result = "applied-clean"
+    if review_dict:
+        patch.review = review_dict
+    else:
+        patch.review = None  # old verdict no longer covers the new pin
     manifest.save()
     print(f"re-pinned PR #{args.pr} to {new_sha[:10]}")
     return 0
@@ -248,6 +262,66 @@ def _print_review(result, upstream: str, pr: int) -> None:
         print(f"the model's answer was unusable ({result.detail}) — treat as unreviewed")
 
 
+def _review_gate(
+    repo: GitRepo,
+    manifest: Manifest,
+    pr: int,
+    base: str,
+    head: str,
+    args: argparse.Namespace,
+    cached: dict | None = None,
+) -> tuple[bool, dict | None]:
+    """The security-review question for add/upgrade/approve.
+
+    Returns (proceed, review_dict_to_cache). Fail-closed rule: in fully
+    non-interactive review mode (--yes --review), anything other than CLEAR
+    aborts. Bare --yes implies --no-review so scripts never hang.
+    """
+    force_review = getattr(args, "review", False)
+    skip_review = getattr(args, "no_review", False) or (args.yes and not force_review)
+    if skip_review:
+        return True, None
+
+    if cached and cached.get("reviewed_sha") == head:
+        print(f"cached AI review for this commit: {cached['verdict']} "
+              f"({cached.get('findings_count', 0)} finding(s), {cached.get('at', '')})")
+        if cached["verdict"] == VERDICT_CLEAR:
+            print(HONESTY_NOTE)
+            return True, cached
+        if args.yes:
+            return False, cached
+        return confirm("Install anyway despite the cached verdict?", False), cached
+
+    if force_review:
+        choice = "r"
+    else:
+        choice = input("Review this diff with your Odysseus AI before applying? "
+                       "[r]eview first / [i]nstall without review / [a]bort ").strip().lower()
+    if choice == "a":
+        print("aborted")
+        return False, None
+    if choice != "r":
+        return True, None
+
+    config = Config.load(repo.root / CONFIG_RELPATH)
+    diff = repo.run("diff", f"{base}..{head}")
+    try:
+        result = review_mod.run_review(diff, config)
+    except ReviewUnavailable as exc:
+        print(f"review could not run: {exc}")
+        if args.yes:
+            return False, None  # fail closed in non-interactive mode
+        return confirm("Install without review?", False), None
+
+    _print_review(result, manifest.upstream, pr)
+    review_dict = to_manifest_dict(result, head)
+    if result.verdict == VERDICT_CLEAR:
+        return True, review_dict
+    if args.yes:
+        return False, review_dict  # findings/error + non-interactive = abort
+    return confirm("Install anyway?", False), review_dict
+
+
 def cmd_review(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
@@ -283,6 +357,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("pr", type=int)
     p_add.add_argument("--yes", action="store_true", help="skip confirmation")
     p_add.add_argument("--show", action="store_true", help="print the full diff before confirming")
+    p_add.add_argument("--review", action="store_true", help="AI-review the diff before applying")
+    p_add.add_argument("--no-review", action="store_true", help="skip the review question")
     p_add.set_defaults(func=cmd_add)
 
     p_list = sub.add_parser("list", help="show tracked patches and their status")
@@ -302,6 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_upgrade = sub.add_parser("upgrade", help="re-pin a patch to its PR's new head")
     p_upgrade.add_argument("pr", type=int)
     p_upgrade.add_argument("--yes", action="store_true", help="skip confirmation")
+    p_upgrade.add_argument("--review", action="store_true", help="AI-review the incremental diff")
+    p_upgrade.add_argument("--no-review", action="store_true", help="skip the review question")
     p_upgrade.set_defaults(func=cmd_upgrade)
 
     p_hook = sub.add_parser(
