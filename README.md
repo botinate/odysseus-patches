@@ -22,6 +22,8 @@ pipx install odysseus-patches            # CLI only
 pipx install 'odysseus-patches[mcp]'     # + MCP status server for the agent
 ```
 
+*(Not yet on PyPI — until then: `pipx install git+https://github.com/botinate/odysseus-patches` or `pip install -e .` from a clone.)*
+
 Requirements: a git-checkout install of Odysseus (any platform — the Docker
 flow builds from the working tree, so patches reach containers on rebuild).
 Zip-download installs cannot be patched.

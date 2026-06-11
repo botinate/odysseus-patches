@@ -198,13 +198,13 @@ def cmd_install_hook(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    import json as _json
+    import json
 
     from .status import build_status
 
     checkout = find_checkout(args.checkout)
     repo, manifest = load(checkout)
-    print(_json.dumps(build_status(repo, manifest), indent=2))
+    print(json.dumps(build_status(repo, manifest), indent=2))
     return 0
 
 

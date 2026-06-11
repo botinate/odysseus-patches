@@ -21,6 +21,13 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
             "patches are tracked but the checkout is not running the patched "
             "branch — run `odysseus-patches update`"
         )
+    if appliable and on_patched:
+        base_sha = repo.rev_parse(manifest.base_branch)
+        if repo.merge_base(PATCHED_BRANCH, manifest.base_branch) != base_sha:
+            attention.append(
+                f"the patched branch is built on an outdated {manifest.base_branch} "
+                "— run `odysseus-patches update` to rebase the patches"
+            )
     return {
         "upstream": manifest.upstream,
         "base_branch": manifest.base_branch,

@@ -65,6 +65,8 @@ def main() -> int:
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        # synchronous git/manifest I/O is fine here: stdio MCP serves one
+        # client sequentially — don't "fix" with run_in_executor
         repo = GitRepo(checkout)
         manifest = Manifest.load(checkout / MANIFEST_RELPATH)
         status = build_status(repo, manifest)
@@ -73,7 +75,7 @@ def main() -> int:
         elif name == "patch_status":
             payload = {k: v for k, v in status.items() if k != "patches"}
         else:
-            return [TextContent(type="text", text=f"unknown tool: {name}")]
+            raise ValueError(f"unknown tool: {name}")
         return [TextContent(type="text", text=json.dumps(payload, indent=2))]
 
     async def run() -> None:

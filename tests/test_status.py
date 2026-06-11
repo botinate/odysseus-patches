@@ -43,3 +43,22 @@ def test_status_flags_active_patches_while_on_base_branch(upstream, checkout):
     status = build_status(GitRepo(checkout), manifest)  # still on dev
     assert status["healthy"] is False
     assert any("not running" in line for line in status["attention"])
+
+
+def test_status_flags_stale_patched_branch(upstream, checkout):
+    sha = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: something")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(7)
+    manifest = Manifest.load(checkout / "data" / "patches" / "manifest.json")
+    manifest.add(Patch(pr=7, title="fix: something", pinned_sha=sha))
+    rebuild_patched(repo, "dev", manifest.appliable_patches())
+
+    # upstream moves; user pulls dev manually but stays on patched
+    upstream.commit_on_dev("src/other.py", "OTHER = 1\n", "upstream work")
+    repo.run("fetch", "origin", "dev:dev")
+
+    status = build_status(repo, manifest)
+
+    assert status["on_patched_branch"] is True
+    assert status["healthy"] is False
+    assert any("outdated" in line for line in status["attention"])
