@@ -68,6 +68,22 @@ patch state and *propose* patches (optionally pre-reviewed by AI) — but
 applying always requires a human `approve`. The agent cannot apply, upgrade,
 or remove anything by design.
 
+## Web UI panel (optional)
+
+Manage patches inside Odysseus's own interface instead of the terminal:
+
+```bash
+odysseus-patches install-ui      # injects the panel into your Odysseus install
+# ...restart Odysseus, then open Tools -> Patches (admin only)
+odysseus-patches uninstall-ui    # remove it
+```
+
+It is **not** a separate server and **not** an upstream PR: `install-ui` drops two
+files into your Odysseus install and adds one line to its `app.py`, all owned by
+this extension and reapplied automatically when you run `odysseus-patches update`.
+The panel reuses Odysseus's own admin login and themes. Restart Odysseus after
+installing.
+
 ## AI security review (optional)
 
 `add`/`upgrade`/`approve` can ask your own Odysseus instance to review the

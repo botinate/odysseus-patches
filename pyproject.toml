@@ -22,5 +22,8 @@ odysseus-patches-mcp = "odysseus_patches.mcp_server:main"
 [tool.setuptools.packages.find]
 include = ["odysseus_patches*"]
 
+[tool.setuptools.package-data]
+odysseus_patches = ["ui_assets/*.js", "ui_assets/*.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

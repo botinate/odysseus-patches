@@ -44,6 +44,7 @@ class Upstream:
 
     def commit_on_dev(self, relpath: str, content: str, message: str) -> str:
         git("checkout", "dev", cwd=self.work)
+        git("pull", "--ff-only", cwd=self.work)
         target = self.work / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")

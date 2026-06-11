@@ -71,63 +71,87 @@ def run_update(
         # resolved at call time (not def time) so tests can monkeypatch
         # odysseus_patches.github.fetch_pr_info and the CLI picks it up
         fetch_info = github.fetch_pr_info
-    # Check for changes to tracked files only; untracked files (e.g. the
-    # manifest under data/) are not the user's working-tree edits.
-    if repo.run("status", "--porcelain", "--untracked-files=no"):
-        raise UpdateError(
-            "Working tree has uncommitted changes — commit, stash, or discard "
-            "them first (patches never live as dirty files; this is your own work)."
-        )
-    report = UpdateReport()
-    base = manifest.base_branch
 
-    repo.run("checkout", base)
-    report.old_base = repo.rev_parse("HEAD")
-    repo.run("pull", "--ff-only")
-    report.new_base = repo.rev_parse("HEAD")
+    # Strip the UI loader block before the dirty-tree guard so that our own
+    # managed edits to app.py never look like user uncommitted work.
+    from .installer import LOADER_BEGIN, LOADER_END
+    _app_py = repo.root / "app.py"
+    _ui_installed = False
+    if _app_py.exists():
+        _t = _app_py.read_text(encoding="utf-8")
+        if LOADER_BEGIN in _t and LOADER_END in _t:
+            _ui_installed = True
+            _s = _t.index(LOADER_BEGIN)
+            if _s > 0 and _t[_s - 1] == "\n":
+                _s -= 1
+            _e = _t.index(LOADER_END) + len(LOADER_END)
+            _app_py.write_text((_t[:_s] + _t[_e:]).rstrip("\n") + "\n", encoding="utf-8")
 
-    tracked = [
-        p for p in manifest.patches
-        if p.status not in (STATUS_RETIRED, STATUS_PROPOSED)
-    ]
-    infos = {p.pr: fetch_info(manifest.upstream, p.pr) for p in tracked}
-    offline_merged = merged_upstream_prs(repo, report.old_base, report.new_base, tracked)
-    report.actions = plan_update(tracked, infos, offline_merged)
+    try:
+        # Check for changes to tracked files only; untracked files (e.g. the
+        # manifest under data/) are not the user's working-tree edits.
+        if repo.run("status", "--porcelain", "--untracked-files=no"):
+            raise UpdateError(
+                "Working tree has uncommitted changes — commit, stash, or discard "
+                "them first (patches never live as dirty files; this is your own work)."
+            )
+        report = UpdateReport()
+        base = manifest.base_branch
 
-    for action in report.actions:
-        patch = manifest.get(action.pr)
-        if action.action == ACTION_RETIRE:
-            patch.status = STATUS_RETIRED
-            patch.last_result = action.reason
-        elif action.action == ACTION_WARN_CLOSED:
-            patch.status = STATUS_CLOSED_UPSTREAM
+        repo.run("checkout", base)
+        report.old_base = repo.rev_parse("HEAD")
+        repo.run("pull", "--ff-only")
+        report.new_base = repo.rev_parse("HEAD")
 
-    report.apply_results = rebuild_patched(repo, base, manifest.appliable_patches())
+        tracked = [
+            p for p in manifest.patches
+            if p.status not in (STATUS_RETIRED, STATUS_PROPOSED)
+        ]
+        infos = {p.pr: fetch_info(manifest.upstream, p.pr) for p in tracked}
+        offline_merged = merged_upstream_prs(repo, report.old_base, report.new_base, tracked)
+        report.actions = plan_update(tracked, infos, offline_merged)
 
-    for pr, result in report.apply_results.items():
-        patch = manifest.get(pr)
-        if result == APPLY_CONFLICT:
-            patch.status = STATUS_CONFLICTED
-            patch.last_result = "conflict"
-        elif result == APPLY_EMPTY:
-            patch.status = STATUS_RETIRED
-            patch.last_result = "already-upstream"
-        elif result == APPLY_OK:
-            if patch.status == STATUS_CONFLICTED:
-                patch.status = STATUS_ACTIVE
-            patch.last_result = "applied-clean"
+        for action in report.actions:
+            patch = manifest.get(action.pr)
+            if action.action == ACTION_RETIRE:
+                patch.status = STATUS_RETIRED
+                patch.last_result = action.reason
+            elif action.action == ACTION_WARN_CLOSED:
+                patch.status = STATUS_CLOSED_UPSTREAM
 
-    # an empty-pick retire can leave the branch carrying nothing useful;
-    # rebuild once more so the artifact matches the manifest exactly
-    if APPLY_EMPTY in report.apply_results.values():
-        rebuild_patched(repo, base, manifest.appliable_patches())
+        report.apply_results = rebuild_patched(repo, base, manifest.appliable_patches())
 
-    manifest.save()
+        for pr, result in report.apply_results.items():
+            patch = manifest.get(pr)
+            if result == APPLY_CONFLICT:
+                patch.status = STATUS_CONFLICTED
+                patch.last_result = "conflict"
+            elif result == APPLY_EMPTY:
+                patch.status = STATUS_RETIRED
+                patch.last_result = "already-upstream"
+            elif result == APPLY_OK:
+                if patch.status == STATUS_CONFLICTED:
+                    patch.status = STATUS_ACTIVE
+                patch.last_result = "applied-clean"
 
-    if report.attention_needed:
-        return report, EXIT_ATTENTION
-    # any planned action (retire/warn/reapply) means install state changed,
-    # even if the pull was a no-op — EXIT_OK strictly means "nothing happened"
-    if report.apply_results or report.actions:
-        return report, EXIT_REBUILD
-    return report, EXIT_OK
+        # an empty-pick retire can leave the branch carrying nothing useful;
+        # rebuild once more so the artifact matches the manifest exactly
+        if APPLY_EMPTY in report.apply_results.values():
+            rebuild_patched(repo, base, manifest.appliable_patches())
+
+        manifest.save()
+
+        if report.attention_needed:
+            return report, EXIT_ATTENTION
+        # any planned action (retire/warn/reapply) means install state changed,
+        # even if the pull was a no-op — EXIT_OK strictly means "nothing happened"
+        if report.apply_results or report.actions:
+            return report, EXIT_REBUILD
+        return report, EXIT_OK
+    finally:
+        if _ui_installed:
+            try:
+                from .installer import install_ui
+                install_ui(repo.root, overwrite=True)
+            except Exception:
+                pass
