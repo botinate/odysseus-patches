@@ -93,3 +93,19 @@ def test_rebuild_reestablishes_local_pin_ref(upstream, checkout):
     results = rebuild_patched(repo, "dev", [tracked(7, sha)])
     assert results == {7: APPLY_OK}
     assert repo.rev_parse("refs/odypatches/pr/7") == sha
+
+
+def test_two_clean_patches_both_apply(upstream, checkout):
+    first = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: first")
+    second = upstream.open_pr(9, "src/feature.py", "FEATURE = 1\n", "feat: second")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(7)
+    repo.fetch_pr_head(9)
+
+    results = rebuild_patched(repo, "dev", [tracked(7, first), tracked(9, second)])
+
+    assert results == {7: APPLY_OK, 9: APPLY_OK}
+    assert (checkout / "src" / "fix.py").exists()
+    assert (checkout / "src" / "feature.py").exists()
+    log = git("log", "--oneline", "-2", cwd=checkout)
+    assert "[patch] PR#9" in log and "[patch] PR#7" in log

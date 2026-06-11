@@ -4,16 +4,15 @@ All patch content enters through `git fetch origin refs/pull/N/head` — these
 refs live on the base repo for every PR regardless of fork, so no third-party
 remote is ever added. Fetched heads are stored under refs/odypatches/pr/N so
 re-applying pinned SHAs works offline.
+Commits created on the patched branch are authored as odysseus-patches <odysseus-patches@local.invalid> regardless of the user's git identity, so artifact commits are recognizable and hermetic on CI.
 """
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 
-from .manifest import (
-    Patch,
-    STATUS_RETIRED,
-)
+from .manifest import Patch
 
 PATCHED_BRANCH = "patched"
 PR_REF = "refs/odypatches/pr/{pr}"
@@ -50,7 +49,7 @@ class GitRepo:
         )
         if check and proc.returncode != 0:
             raise GitError(
-                f"git {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}"
+                f"git {shlex.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}"
             )
         return proc.stdout.strip()
 
@@ -91,6 +90,11 @@ def rebuild_patched(repo: GitRepo, base_branch: str, patches: list[Patch]) -> di
             repo.run("checkout", base_branch)
         repo.run("branch", "-D", PATCHED_BRANCH, check=False)
         return {}
+
+    # a previous run may have died mid-cherry-pick, leaving CHERRY_PICK_HEAD
+    # behind; --quit forgets it without touching the working tree (a genuinely
+    # dirty tree still fails loudly at the checkout below — fail closed)
+    repo.run("cherry-pick", "--quit", check=False)
 
     repo.run("checkout", "-B", PATCHED_BRANCH, base_branch)
     results: dict[int, str] = {}
