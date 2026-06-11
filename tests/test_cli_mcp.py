@@ -4,7 +4,12 @@ from odysseus_patches import mcp_server
 
 def test_mcp_subcommand_calls_serve_with_checkout(checkout, monkeypatch):
     seen = {}
-    monkeypatch.setattr(mcp_server, "serve", lambda co: seen.setdefault("checkout", co) or 0)
+
+    def fake_serve(co):
+        seen["checkout"] = co
+        return 0
+
+    monkeypatch.setattr(mcp_server, "serve", fake_serve)
     code = cli.main(["-C", str(checkout), "mcp"])
     assert code == 0
     assert seen["checkout"] == str(checkout)

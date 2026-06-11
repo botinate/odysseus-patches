@@ -438,8 +438,7 @@ def cmd_reject(args: argparse.Namespace) -> int:
 def cmd_mcp(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     from .mcp_server import serve
-    result = serve(str(checkout))
-    return result if isinstance(result, int) else 0
+    return serve(str(checkout))
 
 
 def cmd_install_ui(args: argparse.Namespace) -> int:
