@@ -83,7 +83,7 @@ def upstream(tmp_path: Path) -> Upstream:
     git("init", "--bare", "-b", "dev", str(bare), cwd=tmp_path)
     work = tmp_path / "upstream-work"
     git("clone", str(bare), str(work), cwd=tmp_path)
-    git("checkout", "-b", "dev", cwd=work)
+    git("checkout", "-B", "dev", cwd=work)
     (work / "src").mkdir()
     (work / "src" / "app.py").write_text("VERSION = 1\nGREETING = 'hi'\n", encoding="utf-8")
     git("add", "-A", cwd=work)

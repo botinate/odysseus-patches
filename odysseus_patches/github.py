@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import subprocess
 import urllib.request
+import warnings
 from dataclasses import dataclass
 
 TIMEOUT_SECONDS = 15
@@ -62,6 +63,13 @@ def fetch_pr_info(upstream: str, pr: int) -> PRInfo | None:
     for fetcher in (_via_gh, _via_rest):
         try:
             return fetcher(upstream, pr)
-        except Exception:
+        except (OSError, subprocess.SubprocessError, ValueError):
+            # expected offline/unavailable modes: no gh binary, network down,
+            # rate-limited (non-zero gh exit), garbage/truncated JSON
+            continue
+        except Exception as exc:
+            # unexpected (e.g. API schema change breaking _parse_payload):
+            # still degrade to None, but loudly enough to diagnose
+            warnings.warn(f"fetch_pr_info: unexpected {exc!r}", stacklevel=2)
             continue
     return None
