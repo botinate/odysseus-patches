@@ -58,6 +58,9 @@ def test_merged_pr_is_retired(upstream, checkout):
     assert manifest.get(7).status == STATUS_RETIRED
     assert repo.current_branch() == "dev"  # no active patches left
     assert (checkout / "src" / "fix.py").exists()  # via upstream now
+    reloaded = Manifest.load(checkout / "data" / "patches" / "manifest.json")
+    assert reloaded.get(7).status == STATUS_RETIRED
+    assert reloaded.get(7).last_result == "merged upstream"
 
 
 def test_offline_squash_merge_still_retires(upstream, checkout):

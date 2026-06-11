@@ -86,7 +86,6 @@ def run_update(
     report.new_base = repo.rev_parse("HEAD")
 
     tracked = [p for p in manifest.patches if p.status != STATUS_RETIRED]
-    had_patches = bool(tracked)
     infos = {p.pr: fetch_info(manifest.upstream, p.pr) for p in tracked}
     offline_merged = merged_upstream_prs(repo, report.old_base, report.new_base, tracked)
     report.actions = plan_update(tracked, infos, offline_merged)
@@ -123,6 +122,8 @@ def run_update(
 
     if report.attention_needed:
         return report, EXIT_ATTENTION
-    if report.apply_results or (had_patches and report.pulled):
+    # any planned action (retire/warn/reapply) means install state changed,
+    # even if the pull was a no-op — EXIT_OK strictly means "nothing happened"
+    if report.apply_results or report.actions:
         return report, EXIT_REBUILD
     return report, EXIT_OK
