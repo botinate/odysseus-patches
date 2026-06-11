@@ -33,10 +33,14 @@ Zip-download installs cannot be patched.
 ```bash
 cd /path/to/odysseus
 odysseus-patches add 3681        # review diffstat, confirm, apply pinned
+odysseus-patches add 3681 --review  # ...or have your Odysseus AI security-review the diff first
 odysseus-patches list
 odysseus-patches update          # instead of `git pull --ff-only`
 odysseus-patches upgrade 3681    # PR got new commits: review + re-pin
 odysseus-patches remove 3681
+odysseus-patches propose 3681    # stage only; approve/reject later
+odysseus-patches approve 3681    # apply a staged proposal
+odysseus-patches config set api_token <odysseus-api-token>   # one-time, enables AI review
 odysseus-patches install-hook update_windows.bat   # wire into your updater
 ```
 
@@ -59,8 +63,19 @@ Add the read-only MCP server in Odysseus → integrations (stdio):
 - command: `odysseus-patches-mcp`
 - args: `["--checkout", "/path/to/odysseus"]`
 
-Tools: `list_patches`, `patch_status`. The agent can report patch state;
-it cannot apply, upgrade, or remove anything by design.
+Tools: `list_patches`, `patch_status`, `propose_patch`. The agent can report
+patch state and *propose* patches (optionally pre-reviewed by AI) — but
+applying always requires a human `approve`. The agent cannot apply, upgrade,
+or remove anything by design.
+
+## AI security review (optional)
+
+`add`/`upgrade`/`approve` can ask your own Odysseus instance to review the
+diff for vulnerabilities and sketchy code before anything is applied (uses
+your default model — one-time setup: an Odysseus API token with chat scope,
+`odysseus-patches config set api_token <token>`). Findings urge you to report
+the PR and require an explicit "install anyway". A clean review is evidence,
+not proof — review sensitive diffs yourself.
 
 ## Security model
 

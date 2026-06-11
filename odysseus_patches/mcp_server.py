@@ -29,10 +29,13 @@ def main() -> int:
         )
         return 1
 
-    from .cli import MANIFEST_RELPATH, find_checkout
+    from .cli import CONFIG_RELPATH, MANIFEST_RELPATH, find_checkout
+    from .config import Config
     from .gitops import GitRepo
     from .manifest import Manifest
+    from .proposals import ProposalError, stage_proposal
     from .status import build_status
+    from . import review as review_mod
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkout", default=".")
@@ -61,6 +64,28 @@ def main() -> int:
                 ),
                 inputSchema={"type": "object", "properties": {}},
             ),
+            Tool(
+                name="propose_patch",
+                description=(
+                    "Stage an open upstream Odysseus PR as a patch PROPOSAL on "
+                    "this install. Nothing is applied: a human must approve it "
+                    "in the patches UI or with `odysseus-patches approve <pr>`. "
+                    "Optionally runs an AI security review of the diff first "
+                    "and attaches the verdict to the proposal."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "pr": {"type": "integer", "description": "upstream PR number"},
+                        "run_review": {
+                            "type": "boolean",
+                            "description": "AI-review the diff and attach the verdict (default true)",
+                        },
+                        "note": {"type": "string", "description": "why this PR is being proposed"},
+                    },
+                    "required": ["pr"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -74,6 +99,23 @@ def main() -> int:
             payload = status["patches"]
         elif name == "patch_status":
             payload = {k: v for k, v in status.items() if k != "patches"}
+        elif name == "propose_patch":
+            pr = int(arguments["pr"])
+            run_review = bool(arguments.get("run_review", True))
+            note = str(arguments.get("note", ""))
+            config = Config.load(checkout / CONFIG_RELPATH)
+            review_runner = (
+                (lambda diff: review_mod.run_review(diff, config)) if run_review else None
+            )
+            try:
+                message = stage_proposal(
+                    repo, manifest, pr,
+                    run_review=run_review, note=note, proposer="agent",
+                    review_runner=review_runner,
+                )
+            except ProposalError as exc:
+                message = f"could not stage proposal: {exc}"
+            return [TextContent(type="text", text=message)]
         else:
             raise ValueError(f"unknown tool: {name}")
         return [TextContent(type="text", text=json.dumps(payload, indent=2))]

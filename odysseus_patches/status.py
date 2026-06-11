@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from .gitops import GitRepo, PATCHED_BRANCH
-from .manifest import Manifest, STATUS_CONFLICTED
+from .manifest import Manifest, STATUS_CONFLICTED, STATUS_PROPOSED
 
 
 def build_status(repo: GitRepo, manifest: Manifest) -> dict:
@@ -16,6 +16,12 @@ def build_status(repo: GitRepo, manifest: Manifest) -> dict:
             attention.append(
                 f"PR #{p.pr} is conflicted — `odysseus-patches show {p.pr}` for details"
             )
+    proposals = [p for p in manifest.patches if p.status == STATUS_PROPOSED]
+    if proposals:
+        attention.append(
+            f"{len(proposals)} proposal(s) awaiting approval — "
+            "`odysseus-patches approve <pr>` or reject"
+        )
     if appliable and not on_patched:
         attention.append(
             "patches are tracked but the checkout is not running the patched "
