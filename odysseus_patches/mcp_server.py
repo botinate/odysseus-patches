@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 
 
-def main() -> int:
+def serve(checkout: str) -> int:
+    """Run the MCP server with an already-resolved checkout path string."""
     try:
         import asyncio
 
@@ -29,7 +30,7 @@ def main() -> int:
         )
         return 1
 
-    from .cli import CONFIG_RELPATH, MANIFEST_RELPATH, find_checkout
+    from .cli import CONFIG_RELPATH, MANIFEST_RELPATH
     from .config import Config
     from .gitops import GitRepo
     from .manifest import Manifest
@@ -37,10 +38,7 @@ def main() -> int:
     from .status import build_status
     from . import review as review_mod
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--checkout", default=".")
-    args = parser.parse_args()
-    checkout = find_checkout(Path(args.checkout))
+    checkout_path = Path(checkout)
 
     server = Server("odysseus-patches")
 
@@ -92,8 +90,8 @@ def main() -> int:
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # synchronous git/manifest I/O is fine here: stdio MCP serves one
         # client sequentially — don't "fix" with run_in_executor
-        repo = GitRepo(checkout)
-        manifest = Manifest.load(checkout / MANIFEST_RELPATH)
+        repo = GitRepo(checkout_path)
+        manifest = Manifest.load(checkout_path / MANIFEST_RELPATH)
         status = build_status(repo, manifest)
         if name == "list_patches":
             payload = status["patches"]
@@ -103,7 +101,7 @@ def main() -> int:
             pr = int(arguments["pr"])
             run_review = bool(arguments.get("run_review", True))
             note = str(arguments.get("note", ""))
-            config = Config.load(checkout / CONFIG_RELPATH)
+            config = Config.load(checkout_path / CONFIG_RELPATH)
             review_runner = (
                 (lambda diff: review_mod.run_review(diff, config)) if run_review else None
             )
@@ -127,6 +125,15 @@ def main() -> int:
 
     asyncio.run(run())
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkout", default=".")
+    args = parser.parse_args()
+    from .cli import find_checkout
+    checkout = find_checkout(Path(args.checkout))
+    return serve(str(checkout))
 
 
 if __name__ == "__main__":

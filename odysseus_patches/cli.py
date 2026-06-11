@@ -435,6 +435,13 @@ def cmd_reject(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    from .mcp_server import serve
+    result = serve(str(checkout))
+    return result if isinstance(result, int) else 0
+
+
 def cmd_install_ui(args: argparse.Namespace) -> int:
     from .installer import install_ui, uninstall_ui, InstallError
     checkout = find_checkout(args.checkout)
@@ -545,6 +552,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_uui = sub.add_parser("uninstall-ui", help="remove the patches panel from your Odysseus UI")
     p_uui.set_defaults(func=cmd_install_ui, action="remove")
+
+    p_mcp = sub.add_parser("mcp", help="run the read-only MCP server (stdio) for the agent")
+    p_mcp.set_defaults(func=cmd_mcp)
 
     return parser
 
