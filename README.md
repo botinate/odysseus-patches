@@ -83,16 +83,16 @@ a force-pushed PR can never silently change what your install runs.
 
 ## Agent visibility (optional)
 
-Add the MCP server in Odysseus → integrations (stdio). Use the **absolute path**
-to the command — Odysseus spawns it as a subprocess and won't find a bare name
-on its PATH:
+`install-ui` **auto-registers** a read-only MCP server in Odysseus (a row in its
+`mcp_servers` table, with the absolute interpreter path so there's no PATH
+guesswork) — restart Odysseus and the agent gets the tools, no manual
+integration setup. `uninstall-ui` removes it.
 
-- command: the full path to `odysseus-patches-mcp`, e.g. run `which odysseus-patches-mcp`
-  (pipx) or, if you installed it into Odysseus's own venv,
-  `/path/to/odysseus/venv/bin/odysseus-patches-mcp`
-- args: `["--checkout", "/path/to/odysseus"]`
-- the server needs the `mcp` package in that environment (it's already present
-  in an Odysseus venv; otherwise `pipx install 'odysseus-patches[mcp]'`)
+The MCP server needs the `mcp` package in the Python that runs it, so register
+from an environment that has it: run `install-ui` with Odysseus's own venv
+(`/path/to/odysseus/venv/bin/odysseus-patches -C /path/to/odysseus install-ui`,
+its venv already has `mcp`), or `pipx install 'odysseus-patches[mcp]'`. To run
+the server by hand: `odysseus-patches -C /path/to/odysseus mcp`.
 
 Tools: `list_patches`, `patch_status`, `propose_patch`. The agent can report
 patch state and *propose* patches (optionally pre-reviewed by AI) — but
