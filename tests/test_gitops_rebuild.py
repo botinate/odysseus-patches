@@ -109,3 +109,35 @@ def test_two_clean_patches_both_apply(upstream, checkout):
     assert (checkout / "src" / "feature.py").exists()
     log = git("log", "--oneline", "-2", cwd=checkout)
     assert "[patch] PR#9" in log and "[patch] PR#7" in log
+
+
+def test_apply_pr_with_merge_commit(upstream, checkout):
+    # a PR branch that was "updated" by merging dev — its head is a merge commit.
+    # cherry-pick chokes on merge commits; merge --squash must handle it.
+    work = upstream.work
+    git("checkout", "-b", "pr-merge", "dev", cwd=work)
+    (work / "src" / "fix.py").write_text("FIX = True\n", encoding="utf-8")
+    git("add", "-A", cwd=work)
+    git("commit", "-m", "feat: fix", cwd=work)
+    # meanwhile dev advances on an unrelated file...
+    git("checkout", "dev", cwd=work)
+    (work / "src" / "other.py").write_text("OTHER = 1\n", encoding="utf-8")
+    git("add", "-A", cwd=work)
+    git("commit", "-m", "unrelated dev work", cwd=work)
+    git("push", "origin", "dev", cwd=work)
+    # ...and the PR branch merges dev in (creating a MERGE commit at its head)
+    git("checkout", "pr-merge", cwd=work)
+    git("merge", "--no-edit", "dev", cwd=work)
+    head = git("rev-parse", "HEAD", cwd=work)
+    git("push", "origin", "pr-merge:refs/pull/77/head", cwd=work)
+    # the user's checkout catches up dev and fetches the PR head
+    repo = GitRepo(checkout)
+    repo.run("pull", "--ff-only")
+    repo.fetch_pr_head(77)
+
+    results = rebuild_patched(repo, "dev", [tracked(77, head)])
+
+    assert results == {77: APPLY_OK}, results
+    assert (checkout / "src" / "fix.py").exists()
+    log = git("log", "--oneline", "-1", cwd=checkout)
+    assert "[patch] PR#77" in log

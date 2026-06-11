@@ -91,30 +91,28 @@ def rebuild_patched(repo: GitRepo, base_branch: str, patches: list[Patch]) -> di
         repo.run("branch", "-D", PATCHED_BRANCH, check=False)
         return {}
 
-    # a previous run may have died mid-cherry-pick, leaving CHERRY_PICK_HEAD
-    # behind; --quit forgets it without touching the working tree (a genuinely
-    # dirty tree still fails loudly at the checkout below — fail closed)
+    # a previous run may have died mid-cherry-pick or mid-merge, leaving
+    # CHERRY_PICK_HEAD / MERGE_HEAD behind; abort/quit without touching the
+    # working tree (a genuinely dirty tree still fails loudly at the checkout
+    # below — fail closed)
     repo.run("cherry-pick", "--quit", check=False)
+    repo.run("merge", "--abort", check=False)
 
     repo.run("checkout", "-B", PATCHED_BRANCH, base_branch)
     results: dict[int, str] = {}
     for patch in patches:
         local_ref = PR_REF.format(pr=patch.pr)
-        base = repo.merge_base(PATCHED_BRANCH, patch.pinned_sha)
+        # 3-way squash-merge the PR head onto the patched branch. Unlike
+        # cherry-pick of a commit range, this handles PR branches that contain
+        # merge commits (PRs updated by merging the base branch). It stages the
+        # net change without committing; we commit it as one [patch] commit.
         proc = subprocess.run(
-            [
-                "git", "-c", "commit.gpgsign=false",
-                "cherry-pick", "--no-commit", f"{base}..{patch.pinned_sha}",
-            ],
-            cwd=repo.root,
-            capture_output=True,
-            text=True,
+            ["git", "-c", "commit.gpgsign=false", "merge", "--squash", patch.pinned_sha],
+            cwd=repo.root, capture_output=True, text=True,
         )
         if proc.returncode != 0:
-            subprocess.run(
-                ["git", "cherry-pick", "--abort"],
-                cwd=repo.root, capture_output=True, text=True,
-            )
+            # real content conflict — abort and leave the branch clean
+            subprocess.run(["git", "merge", "--abort"], cwd=repo.root, capture_output=True, text=True)
             repo.run("reset", "--hard", "HEAD")
             results[patch.pr] = APPLY_CONFLICT
             continue
