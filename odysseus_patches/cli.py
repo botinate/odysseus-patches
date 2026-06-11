@@ -14,7 +14,8 @@ from . import github
 from .config import Config, ConfigError
 from .gitops import APPLY_EMPTY, APPLY_OK, GitError, GitRepo, rebuild_patched
 from .hooks import HookError
-from .manifest import Manifest, ManifestError, Patch
+from .manifest import Manifest, ManifestError, Patch, STATUS_PROPOSED
+from .proposals import ProposalError, stage_proposal
 from .update import UpdateError, run_update
 from . import review as review_mod
 from .review import HONESTY_NOTE, ReviewResult, ReviewUnavailable, VERDICT_CLEAR, VERDICT_ERROR, VERDICT_FINDINGS, to_manifest_dict
@@ -114,9 +115,11 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not manifest.patches:
         print("no patches tracked")
         return 0
-    print(f"{'PR':>6}  {'STATUS':<16} {'PINNED':<12} TITLE")
+    print(f"{'PR':>6}  {'STATUS':<16} {'PINNED':<12} {'REVIEW':<14} TITLE")
     for p in manifest.patches:
-        print(f"#{p.pr:>5}  {p.status:<16} {p.pinned_sha[:10]:<12} {p.title}")
+        verdict = (p.review or {}).get("verdict", "-")
+        title = p.title if p.proposer == "cli" else f"{p.title}  [proposed by {p.proposer}]"
+        print(f"#{p.pr:>5}  {p.status:<16} {p.pinned_sha[:10]:<12} {verdict:<14} {title}")
     return 0
 
 
@@ -352,6 +355,81 @@ def cmd_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_propose(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    repo, manifest = load(checkout)
+    review_runner = None
+    if args.review:
+        config = Config.load(checkout / CONFIG_RELPATH)
+        review_runner = lambda diff: review_mod.run_review(diff, config)
+    message = stage_proposal(
+        repo, manifest, args.pr,
+        run_review=args.review, note=args.note, proposer="cli",
+        review_runner=review_runner,
+    )
+    print(message)
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    repo, manifest = load(checkout)
+    patch = manifest.get(args.pr)
+    if patch is None or patch.status != STATUS_PROPOSED:
+        raise CliError(
+            f"PR #{args.pr} is not a proposal"
+            + ("" if patch is None else f" (status: {patch.status})")
+        )
+    base = repo.merge_base(manifest.base_branch, patch.pinned_sha)
+    print(f"PR #{patch.pr}: {patch.title} (proposed by {patch.proposer})")
+    if patch.note:
+        print(f"note: {patch.note}")
+    print(repo.diffstat(base, patch.pinned_sha))
+    if args.show:
+        print(repo.run("diff", f"{base}..{patch.pinned_sha}"))
+    proceed, review_dict = _review_gate(
+        repo, manifest, args.pr, base, patch.pinned_sha, args, cached=patch.review
+    )
+    if not proceed:
+        return 1 if (args.yes and review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
+    if not confirm("Apply this patch?", args.yes):
+        print("aborted")
+        return 0
+    patch.status = "active"
+    if review_dict:
+        patch.review = review_dict
+    results = rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
+    result = results.get(args.pr)
+    if result != APPLY_OK:
+        patch.status = STATUS_PROPOSED  # roll back to proposal, nothing applied
+        rebuild_patched(repo, manifest.base_branch, manifest.appliable_patches())
+        manifest.save()
+        if result == APPLY_EMPTY:
+            raise CliError(
+                f"PR #{args.pr}'s changes are already in upstream {manifest.base_branch} "
+                "— reject the proposal and just update."
+            )
+        raise CliError(f"PR #{args.pr} does not apply cleanly ({result}) — left as proposal.")
+    patch.last_result = "applied-clean"
+    manifest.save()
+    print(f"approved and applied PR #{args.pr} — restart/rebuild Odysseus to run it")
+    return 0
+
+
+def cmd_reject(args: argparse.Namespace) -> int:
+    checkout = find_checkout(args.checkout)
+    _, manifest = load(checkout)
+    patch = manifest.get(args.pr)
+    if patch is None:
+        raise CliError(f"PR #{args.pr} is not tracked")
+    if patch.status != STATUS_PROPOSED:
+        raise CliError(f"PR #{args.pr} is applied (status: {patch.status}) — use `remove` instead")
+    manifest.remove(args.pr)
+    manifest.save()
+    print(f"rejected proposal PR #{args.pr}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="odysseus-patches",
@@ -414,6 +492,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_review.add_argument("pr", type=int)
     p_review.set_defaults(func=cmd_review)
 
+    p_propose = sub.add_parser("propose", help="stage a PR as a proposal (not applied)")
+    p_propose.add_argument("pr", type=int)
+    p_propose.add_argument("--review", action="store_true", help="attach an AI review to the proposal")
+    p_propose.add_argument("--note", default="", help="why this PR is proposed")
+    p_propose.set_defaults(func=cmd_propose)
+
+    p_approve = sub.add_parser("approve", help="apply a staged proposal (review question included)")
+    p_approve.add_argument("pr", type=int)
+    p_approve.add_argument("--yes", action="store_true", help="skip confirmation")
+    p_approve.add_argument("--show", action="store_true", help="print the full diff")
+    p_approve.add_argument("--review", action="store_true", help="AI-review before applying")
+    p_approve.add_argument("--no-review", action="store_true", help="skip the review question")
+    p_approve.set_defaults(func=cmd_approve)
+
+    p_reject = sub.add_parser("reject", help="drop a staged proposal")
+    p_reject.add_argument("pr", type=int)
+    p_reject.set_defaults(func=cmd_reject)
+
     return parser
 
 
@@ -422,7 +518,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CliError, ManifestError, GitError, UpdateError, HookError, ConfigError) as exc:
+    except (CliError, ManifestError, GitError, UpdateError, HookError, ConfigError, ProposalError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
