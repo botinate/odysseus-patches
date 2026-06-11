@@ -430,6 +430,25 @@ def cmd_reject(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_ui(args: argparse.Namespace) -> int:
+    from .installer import install_ui, uninstall_ui, InstallError
+    checkout = find_checkout(args.checkout)
+    try:
+        if args.action == "remove":
+            changed = uninstall_ui(checkout)
+            print("removed:" if changed else "nothing to remove")
+        else:
+            changed = install_ui(checkout, overwrite=not args.no_overwrite)
+            print("installed/updated:")
+        for c in changed:
+            print(f"  {c}")
+        if args.action != "remove":
+            print("Restart Odysseus to load the Patches panel (Tools → Patches).")
+    except InstallError as exc:
+        raise CliError(str(exc))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="odysseus-patches",
@@ -509,6 +528,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_reject = sub.add_parser("reject", help="drop a staged proposal")
     p_reject.add_argument("pr", type=int)
     p_reject.set_defaults(func=cmd_reject)
+
+    p_iui = sub.add_parser("install-ui", help="install the patches panel into your Odysseus UI")
+    p_iui.add_argument("--no-overwrite", action="store_true", help="don't overwrite existing asset files")
+    p_iui.set_defaults(func=cmd_install_ui, action="install")
+
+    p_uui = sub.add_parser("uninstall-ui", help="remove the patches panel from your Odysseus UI")
+    p_uui.set_defaults(func=cmd_install_ui, action="remove")
 
     return parser
 
