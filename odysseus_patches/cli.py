@@ -456,6 +456,10 @@ def cmd_install_ui(args: argparse.Namespace) -> int:
             print(f"  {c}")
         if args.action != "remove":
             print("Restart Odysseus to load the Patches panel (Tools → Patches).")
+            import importlib.util
+            if importlib.util.find_spec("mcp") is None:
+                print("  note: the MCP server needs the 'mcp' package in THIS Python "
+                      "(pip install 'odysseus-patches[mcp]', or run install-ui from Odysseus's venv).")
     except InstallError as exc:
         raise CliError(str(exc))
     return 0
