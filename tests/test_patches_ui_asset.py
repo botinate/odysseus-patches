@@ -29,12 +29,34 @@ def test_first_line_strips_error_prefix():
     assert mod._first_line("") == ""
 
 
-def test_cli_path_prefers_env(monkeypatch, tmp_path):
+def test_cli_command_prefers_env(monkeypatch, tmp_path):
     mod = _load()
     fake = tmp_path / "odysseus-patches"
     fake.write_text("#!/bin/sh\n")
     monkeypatch.setenv("ODYSSEUS_PATCHES_BIN", str(fake))
-    assert mod._cli_path() == str(fake)
+    assert mod._cli_command() == [str(fake)]
+
+
+def test_cli_command_falls_back_to_python_m(monkeypatch):
+    mod = _load()
+    # no env override, nothing on PATH, no sibling binary — but the package is
+    # importable, so fall back to `python -m odysseus_patches.cli`
+    monkeypatch.delenv("ODYSSEUS_PATCHES_BIN", raising=False)
+    monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(mod.os.path, "exists", lambda p: False)
+    monkeypatch.setattr(mod.importlib.util, "find_spec", lambda name: object())
+    cmd = mod._cli_command()
+    assert cmd[0] == mod.sys.executable
+    assert cmd[1:] == ["-m", "odysseus_patches.cli"]
+
+
+def test_cli_command_none_when_nothing_found(monkeypatch):
+    mod = _load()
+    monkeypatch.delenv("ODYSSEUS_PATCHES_BIN", raising=False)
+    monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(mod.os.path, "exists", lambda p: False)
+    monkeypatch.setattr(mod.importlib.util, "find_spec", lambda name: None)
+    assert mod._cli_command() is None
 
 
 def test_run_cli_builds_command(monkeypatch):
@@ -50,16 +72,31 @@ def test_run_cli_builds_command(monkeypatch):
         seen["cmd"] = cmd
         return FakeProc()
 
-    monkeypatch.setattr(mod, "_cli_path", lambda: "/bin/odysseus-patches")
+    monkeypatch.setattr(mod, "_cli_command", lambda: ["/bin/odysseus-patches"])
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
     code, out, err = mod._run_cli("/srv/ody", ["status"])
     assert code == 0 and out == '{"ok": true}'
     assert seen["cmd"] == ["/bin/odysseus-patches", "-C", "/srv/ody", "status"]
 
 
+def test_run_cli_builds_python_m_command(monkeypatch):
+    mod = _load()
+    seen = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = "{}"
+        stderr = ""
+
+    monkeypatch.setattr(mod, "_cli_command", lambda: ["/py", "-m", "odysseus_patches.cli"])
+    monkeypatch.setattr(mod.subprocess, "run", lambda cmd, **k: seen.update(cmd=cmd) or FakeProc())
+    mod._run_cli("/srv/ody", ["approve", "7", "--yes"])
+    assert seen["cmd"] == ["/py", "-m", "odysseus_patches.cli", "-C", "/srv/ody", "approve", "7", "--yes"]
+
+
 def test_run_cli_missing_binary(monkeypatch):
     mod = _load()
-    monkeypatch.setattr(mod, "_cli_path", lambda: None)
+    monkeypatch.setattr(mod, "_cli_command", lambda: None)
     code, out, err = mod._run_cli("/srv/ody", ["status"])
     assert code == 127
     assert "not installed" in err.lower()

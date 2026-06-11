@@ -16,29 +16,48 @@ the factory, not in module globals) and 422s every route. The `X | None` hints
 below are evaluated natively on Python 3.10+ (Odysseus requires 3.11+).
 """
 import asyncio
+import importlib.util
 import json
 import os
 import shutil
 import subprocess
+import sys
 
 _CLI_TIMEOUT = 600
 _SCRIPT_TAG = '<script type="module" src="/static/js/patches.js"></script>'
 
 
-def _cli_path():
+def _cli_command():
+    """Command prefix for the odysseus-patches CLI, or None if unavailable.
+
+    Tried in order so the panel works without any env var once the package is
+    simply installed in Odysseus's venv:
+      1. ODYSSEUS_PATCHES_BIN (explicit override)
+      2. `odysseus-patches` on PATH
+      3. a console-script next to the running interpreter (venv/bin)
+      4. `python -m odysseus_patches.cli` if the package is importable here
+    """
     override = os.environ.get("ODYSSEUS_PATCHES_BIN")
     if override and os.path.exists(override):
-        return override
-    return shutil.which("odysseus-patches")
+        return [override]
+    found = shutil.which("odysseus-patches")
+    if found:
+        return [found]
+    sibling = os.path.join(os.path.dirname(sys.executable), "odysseus-patches")
+    if os.path.exists(sibling):
+        return [sibling]
+    if importlib.util.find_spec("odysseus_patches") is not None:
+        return [sys.executable, "-m", "odysseus_patches.cli"]
+    return None
 
 
 def _run_cli(checkout: str, args: list) -> tuple:
     """Run the odysseus-patches CLI against `checkout`. Sync (used from a
     thread executor in the async route). Module-level for testability."""
-    binary = _cli_path()
-    if binary is None:
+    prefix = _cli_command()
+    if prefix is None:
         return 127, "", "odysseus-patches CLI not installed"
-    cmd = [binary, "-C", checkout, *args]
+    cmd = [*prefix, "-C", checkout, *args]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_CLI_TIMEOUT)
     except subprocess.TimeoutExpired:
@@ -100,7 +119,7 @@ def setup_patches_ui_routes():
     async def status(request: Request):
         require_admin(request)
         code, out, err = await run(["status"])
-        available = _cli_path() is not None
+        available = _cli_command() is not None
         try:
             return {"cli_available": available, "status": json.loads(out)}
         except (ValueError, TypeError):

@@ -40,7 +40,7 @@ def client(monkeypatch):
 
     mod = _load_asset()
     monkeypatch.setattr(mod, "_run_cli", lambda checkout, args: (0, '{"patches": [], "patch_count": 0}', ""))
-    monkeypatch.setattr(mod, "_cli_path", lambda: "/bin/odysseus-patches")
+    monkeypatch.setattr(mod, "_cli_command", lambda: ["/bin/odysseus-patches"])
 
     app = FastAPI()
     app.include_router(mod.setup_patches_ui_routes())
