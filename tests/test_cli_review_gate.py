@@ -108,3 +108,35 @@ def test_upgrade_reviews_incremental_diff(upstream, checkout, monkeypatch, capsy
     assert "FIX = True" not in calls[0].split("FIX = 2")[0].split("---")[0]
     cached = manifest_of(checkout).get(7).review
     assert cached["reviewed_sha"] == new_sha
+
+
+def test_review_gate_reuses_cached_clear_verdict(upstream, checkout, monkeypatch):
+    # direct unit test of the cached= path (exercised live by cmd_approve in
+    # a later task); a cached CLEAR for the same head proceeds without calling
+    # the model
+    import argparse
+    from odysseus_patches.cli import _review_gate, load
+    from odysseus_patches.review import VERDICT_CLEAR
+
+    repo, manifest = load(checkout)
+    called = []
+    monkeypatch.setattr(review_mod, "run_review", lambda *a, **k: called.append(1))
+    args = argparse.Namespace(review=False, no_review=False, yes=False)
+    cached = {"verdict": VERDICT_CLEAR, "findings_count": 0, "reviewed_sha": "h" * 40, "at": "x"}
+
+    proceed, out = _review_gate(repo, manifest, 7, "base", "h" * 40, args, cached=cached)
+
+    assert proceed is True
+    assert out is cached
+    assert called == []  # cached verdict means no model call
+
+
+def test_yes_review_error_fails_closed(upstream, checkout, monkeypatch, capsys):
+    open_pr(upstream, monkeypatch)
+    from odysseus_patches.review import VERDICT_ERROR
+    fake_review(monkeypatch, ReviewResult(VERDICT_ERROR, [], detail="garbage from model"))
+    code = cli.main(["-C", str(checkout), "add", "7", "--yes", "--review"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "unusable" in out
+    assert manifest_of(checkout).get(7) is None

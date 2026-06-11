@@ -17,7 +17,7 @@ from .hooks import HookError
 from .manifest import Manifest, ManifestError, Patch
 from .update import UpdateError, run_update
 from . import review as review_mod
-from .review import HONESTY_NOTE, ReviewUnavailable, VERDICT_CLEAR, VERDICT_ERROR, VERDICT_FINDINGS, to_manifest_dict
+from .review import HONESTY_NOTE, ReviewResult, ReviewUnavailable, VERDICT_CLEAR, VERDICT_ERROR, VERDICT_FINDINGS, to_manifest_dict
 
 MANIFEST_RELPATH = Path("data") / "patches" / "manifest.json"
 CONFIG_RELPATH = Path("data") / "patches" / "config.json"
@@ -70,7 +70,9 @@ def cmd_add(args: argparse.Namespace) -> int:
         print(repo.run("diff", f"{base}..{sha}"))
     proceed, review_dict = _review_gate(repo, manifest, args.pr, base, sha, args)
     if not proceed:
-        return 1 if (review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
+        # exit 1 only when non-interactive review BLOCKED (script signal);
+        # an interactive user declining is a clean choice, exit 0
+        return 1 if (args.yes and review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
     if not confirm("Apply this patch?", args.yes):
         print("aborted")
         return 0
@@ -190,7 +192,9 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         print("note: the cached AI review covers the OLD pin — these new commits are unreviewed")
     proceed, review_dict = _review_gate(repo, manifest, args.pr, patch.pinned_sha, new_sha, args)
     if not proceed:
-        return 1 if (review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
+        # exit 1 only when non-interactive review BLOCKED (script signal);
+        # an interactive user declining is a clean choice, exit 0
+        return 1 if (args.yes and review_dict and review_dict.get("verdict") != VERDICT_CLEAR) else 0
     if not confirm("Adopt the new commits?", args.yes):
         print("aborted")
         return 0
@@ -246,7 +250,7 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_review(result, upstream: str, pr: int) -> None:
+def _print_review(result: "ReviewResult", upstream: str, pr: int) -> None:
     print(f"AI review verdict: {result.verdict}")
     for f in result.findings:
         loc = f" [{f.file}]" if f.file else ""
@@ -276,6 +280,10 @@ def _review_gate(
     Returns (proceed, review_dict_to_cache). Fail-closed rule: in fully
     non-interactive review mode (--yes --review), anything other than CLEAR
     aborts. Bare --yes implies --no-review so scripts never hang.
+
+    cached: a prior review dict (used by cmd_approve to reuse a proposal's
+    verdict when it still covers the same commit); None for add/upgrade's
+    first review.
     """
     force_review = getattr(args, "review", False)
     skip_review = getattr(args, "no_review", False) or (args.yes and not force_review)
@@ -319,7 +327,9 @@ def _review_gate(
         return True, review_dict
     if args.yes:
         return False, review_dict  # findings/error + non-interactive = abort
-    return confirm("Install anyway?", False), review_dict
+    # interactive: a FINDINGS verdict is worth caching; REVIEW_ERROR is noise
+    cache = review_dict if result.verdict == VERDICT_FINDINGS else None
+    return confirm("Install anyway?", False), cache
 
 
 def cmd_review(args: argparse.Namespace) -> int:
