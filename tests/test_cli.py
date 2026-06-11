@@ -90,3 +90,15 @@ def test_not_a_git_checkout_errors(tmp_path, capsys):
     code = cli.main(["-C", str(tmp_path), "list"])
     assert code == 1
     assert "git checkout" in capsys.readouterr().err
+
+
+def test_add_aborts_when_user_declines(upstream, checkout, monkeypatch, capsys):
+    sha = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: something")
+    fake_info(monkeypatch, {7: PRInfo(7, "fix: something", "open", False, sha)})
+    monkeypatch.setattr("builtins.input", lambda _: "n")
+
+    code = cli.main(["-C", str(checkout), "add", "7"])
+
+    assert code == 0
+    assert "aborted" in capsys.readouterr().out
+    assert manifest_of(checkout).get(7) is None

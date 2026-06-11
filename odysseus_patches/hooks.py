@@ -19,6 +19,12 @@ def install_hook(script_path: Path) -> bool:
     """Replace the ff-only pull with an odysseus-patches update call.
 
     Returns True when the script was modified, False when already hooked.
+
+    The injected command is a bare `odysseus-patches update`: it assumes the
+    script sets its working directory to the checkout root before the pull
+    line (update_windows.bat does, via pushd "%~dp0") and that
+    odysseus-patches is on PATH for whichever user runs the script — use a
+    full path in the script if it runs under a different account.
     """
     script_path = Path(script_path)
     raw = script_path.read_bytes()
