@@ -24,6 +24,7 @@ from .manifest import (
     STATUS_ACTIVE,
     STATUS_CLOSED_UPSTREAM,
     STATUS_CONFLICTED,
+    STATUS_PROPOSED,
     STATUS_RETIRED,
 )
 from .planner import (
@@ -85,7 +86,10 @@ def run_update(
     repo.run("pull", "--ff-only")
     report.new_base = repo.rev_parse("HEAD")
 
-    tracked = [p for p in manifest.patches if p.status != STATUS_RETIRED]
+    tracked = [
+        p for p in manifest.patches
+        if p.status not in (STATUS_RETIRED, STATUS_PROPOSED)
+    ]
     infos = {p.pr: fetch_info(manifest.upstream, p.pr) for p in tracked}
     offline_merged = merged_upstream_prs(repo, report.old_base, report.new_base, tracked)
     report.actions = plan_update(tracked, infos, offline_merged)

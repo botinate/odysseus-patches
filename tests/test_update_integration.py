@@ -8,6 +8,7 @@ from odysseus_patches.manifest import (
     Patch,
     STATUS_ACTIVE,
     STATUS_CONFLICTED,
+    STATUS_PROPOSED,
     STATUS_RETIRED,
 )
 from odysseus_patches.update import (
@@ -125,3 +126,44 @@ def test_undetected_merged_patch_retires_via_empty_pick(upstream, checkout):
     assert repo.current_branch() == "dev"
     branches = git("branch", "--list", PATCHED_BRANCH, cwd=checkout)
     assert branches == ""
+
+
+def test_update_leaves_proposal_untouched(upstream, checkout):
+    # a proposal must survive update with status unchanged, even when its PR
+    # is reported merged upstream — update must not reconcile proposals at all
+    sha = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: pr 7")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(7)
+    manifest = Manifest.load(checkout / "data" / "patches" / "manifest.json")
+    manifest.add(Patch(pr=7, title="fix: pr 7", pinned_sha=sha, status=STATUS_PROPOSED, proposer="agent"))
+    manifest.save()
+    upstream.squash_merge_pr(sha, "fix: pr 7 (#7)")
+
+    fetched = []
+    def fetch(upstream_name, pr):
+        fetched.append(pr)
+        return PRInfo(7, "fix: pr 7", "closed", True, sha)
+
+    report, code = run_update(repo, manifest, fetch_info=fetch)
+
+    saved = Manifest.load(checkout / "data" / "patches" / "manifest.json").get(7)
+    assert saved.status == STATUS_PROPOSED          # unchanged
+    assert 7 not in fetched                          # update never queried it
+    assert repo.current_branch() == "dev"            # never applied
+
+
+def test_update_does_not_apply_closed_proposal(upstream, checkout):
+    # the latent security path: a closed-unmerged proposal must NOT become
+    # closed-upstream (which is appliable) via update
+    sha = upstream.open_pr(8, "src/fix.py", "FIX = True\n", "fix: pr 8")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(8)
+    manifest = Manifest.load(checkout / "data" / "patches" / "manifest.json")
+    manifest.add(Patch(pr=8, title="fix: pr 8", pinned_sha=sha, status=STATUS_PROPOSED, proposer="agent"))
+    manifest.save()
+
+    report, code = run_update(repo, manifest, fetch_info=lambda u, p: PRInfo(8, "fix: pr 8", "closed", False, sha))
+
+    saved = Manifest.load(checkout / "data" / "patches" / "manifest.json").get(8)
+    assert saved.status == STATUS_PROPOSED           # NOT closed-upstream
+    assert not (checkout / "src" / "fix.py").exists()  # never applied
