@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import github
 from .gitops import APPLY_OK, GitError, GitRepo, rebuild_patched
+from .hooks import HookError
 from .manifest import Manifest, ManifestError, Patch
 from .update import UpdateError, run_update
 
@@ -188,6 +189,14 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_hook(args: argparse.Namespace) -> int:
+    from .hooks import install_hook
+
+    changed = install_hook(Path(args.script))
+    print("hook installed" if changed else "already hooked — nothing to do")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="odysseus-patches",
@@ -224,6 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_upgrade.add_argument("--yes", action="store_true", help="skip confirmation")
     p_upgrade.set_defaults(func=cmd_upgrade)
 
+    p_hook = sub.add_parser(
+        "install-hook", help="make a local update script call `odysseus-patches update`"
+    )
+    p_hook.add_argument("script", help="path to e.g. update_windows.bat")
+    p_hook.set_defaults(func=cmd_install_hook)
+
     return parser
 
 
@@ -232,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CliError, ManifestError, GitError, UpdateError) as exc:
+    except (CliError, ManifestError, GitError, UpdateError, HookError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
