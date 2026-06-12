@@ -13,14 +13,16 @@ jobs:
   greeting:
     runs-on: ubuntu-latest
     steps:
+      # first-interaction v3 renamed its inputs to underscore style
+      # (repo_token/issue_message/pr_message); the dash names error out.
       - uses: actions/first-interaction@v3
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          issue-message: >
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          issue_message: >
             Thanks for opening your first issue! Please double-check you filled
             in the issue form — it helps triage. A maintainer will get to it.
             Security report? Please follow SECURITY.md instead of a public issue.
-          pr-message: >
+          pr_message: >
             Thanks for your first PR! Please skim CONTRIBUTING.md — a
             conventional-commit title and green CI keep review quick. Thanks for
             helping out.
