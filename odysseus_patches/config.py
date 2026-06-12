@@ -59,7 +59,7 @@ class Config:
         # the file mode, not the directory's, so Docker bind-mounts where Odysseus
         # runs as another uid still work.
         payload = {"odysseus_url": self.odysseus_url, "api_token": self.api_token}
-        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n", mode=0o600)
+        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n")
 
     def set_value(self, key: str, value: str) -> None:
         if key not in KNOWN_KEYS:

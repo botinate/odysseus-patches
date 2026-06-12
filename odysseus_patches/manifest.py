@@ -123,9 +123,10 @@ class Manifest:
             "base_branch": self.base_branch,
             "patches": [asdict(p) for p in self.patches],
         }
-        # 0644: non-secret, and the MCP server (possibly a different uid under
-        # Docker) reads it. Written atomically/race-safely all the same.
-        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n", mode=0o644)
+        # Written atomically/race-safely, owner-only. (Cross-uid Docker setups
+        # where Odysseus reads it as a different user should run add/install-ui
+        # as that same user; the manifest is non-secret if perms must be widened.)
+        atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n")
 
     def get(self, pr: int) -> Patch | None:
         for p in self.patches:

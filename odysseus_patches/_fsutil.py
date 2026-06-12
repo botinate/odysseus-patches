@@ -12,16 +12,16 @@ import tempfile
 from pathlib import Path
 
 
-def atomic_write_text(path: Path, text: str, *, mode: int = 0o600) -> None:
-    """Write `text` to `path` atomically and race-safely.
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write `text` to `path` atomically, owner-only, and race-safely.
 
     `tempfile.mkstemp` creates the temp file in the destination directory with
-    O_CREAT|O_EXCL and mode 0600 *from creation* (unpredictable name, so a local
-    attacker can't pre-plant a symlink at it, and O_EXCL fails closed if they
-    somehow did) — so a secret is never momentarily world-readable. The final
-    `os.replace` is atomic within the filesystem and, if `path` is itself a
-    symlink, replaces the link rather than writing through it. `mode` is applied
-    to the final file before the rename (default owner-only).
+    O_CREAT|O_EXCL and mode 0600 *from creation*: an unpredictable name (so a
+    local attacker can't pre-plant a symlink at it), O_EXCL (fails closed if they
+    somehow did), and owner-only perms (a secret is never world-readable, even
+    momentarily — so no chmod is needed). The final `os.replace` is atomic within
+    the filesystem and, if `path` is itself a symlink, replaces the link rather
+    than writing through it.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,10 +29,6 @@ def atomic_write_text(path: Path, text: str, *, mode: int = 0o600) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
-        try:
-            os.chmod(tmp, mode)  # no-op where POSIX modes are unsupported
-        except OSError:
-            pass
         os.replace(tmp, path)
     except BaseException:
         try:
