@@ -16,6 +16,19 @@
     return res.json();
   }
 
+  // State-changing calls carry a custom header. The server requires it; a
+  // cross-site page can't set custom headers without a CORS preflight Odysseus
+  // rejects, so this blocks CSRF against a logged-in admin.
+  async function post(path, body) {
+    const headers = { 'X-Odypatch-CSRF': '1' };
+    const opts = { method: 'POST', headers };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return api(path, opts);
+  }
+
   async function notify(msg, isError) {
     try {
       const ui = await import('/static/js/ui.js');
@@ -65,9 +78,7 @@
       if (!pr) { notify('Enter a PR number', true); return; }
       const review = $('odypatch-review').checked;
       try {
-        const r = await api('/api/patches/add', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pr, review }) });
+        const r = await post('/api/patches/add', { pr, review });
         notify(r.ok ? `Added PR #${pr} — restart Odysseus to apply` : (r.message || 'Add failed'), !r.ok);
       } catch (e) { notify('Add failed', true); }
       $('odypatch-pr').value = '';
@@ -85,9 +96,7 @@
       const t = $('odypatch-token').value.trim();
       if (!t) { notify('Enter a token', true); return; }
       try {
-        const r = await api('/api/patches/config', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_token: t }) });
+        const r = await post('/api/patches/config', { api_token: t });
         notify(r.ok ? 'Token saved' : (r.message || 'Save failed'), !r.ok);
         $('odypatch-token').value = '';
       } catch (e) { notify('Save failed', true); }
@@ -95,24 +104,25 @@
   }
 
   function row(p) {
+    const pr = Number(p.pr) || 0;  // never interpolate an unvalidated value into markup
     const v = (p.review || {}).verdict;
     const badge = v ? ` <span class="odypatch-badge">${esc(v)}</span>` : '';
     const prop = p.proposer && p.proposer !== 'cli' ? ` [${esc(p.proposer)}]` : '';
     const isProp = p.status === 'proposed';
     const acts = isProp
-      ? `<button data-act="approve" data-pr="${p.pr}">Approve</button>
-         <button data-act="reject" data-pr="${p.pr}">Reject</button>
-         <button data-act="review" data-pr="${p.pr}">Review</button>
-         <button data-act="diff" data-pr="${p.pr}">Diff</button>`
-      : `<button data-act="upgrade" data-pr="${p.pr}">Upgrade</button>
-         <button data-act="remove" data-pr="${p.pr}">Remove</button>
-         <button data-act="review" data-pr="${p.pr}">Review</button>
-         <button data-act="diff" data-pr="${p.pr}">Diff</button>`;
+      ? `<button data-act="approve" data-pr="${pr}">Approve</button>
+         <button data-act="reject" data-pr="${pr}">Reject</button>
+         <button data-act="review" data-pr="${pr}">Review</button>
+         <button data-act="diff" data-pr="${pr}">Diff</button>`
+      : `<button data-act="upgrade" data-pr="${pr}">Upgrade</button>
+         <button data-act="remove" data-pr="${pr}">Remove</button>
+         <button data-act="review" data-pr="${pr}">Review</button>
+         <button data-act="diff" data-pr="${pr}">Diff</button>`;
     return `<div class="admin-card" style="margin-bottom:8px">
-      <div><strong>#${p.pr}</strong> ${esc(p.title || '')}${prop}
+      <div><strong>#${pr}</strong> ${esc(p.title || '')}${prop}
         <span class="odypatch-badge">${esc(p.status || '')}</span>${badge}</div>
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${acts}</div>
-      <pre class="odypatch-diff hidden" data-diff-for="${p.pr}" style="max-height:300px;overflow:auto;background:var(--bg);border:1px solid var(--border);padding:8px;font-size:12px;white-space:pre;margin-top:6px"></pre>
+      <pre class="odypatch-diff hidden" data-diff-for="${pr}" style="max-height:300px;overflow:auto;background:var(--bg);border:1px solid var(--border);padding:8px;font-size:12px;white-space:pre;margin-top:6px"></pre>
     </div>`;
   }
 
@@ -155,24 +165,20 @@
       return;
     }
     if (act === 'update') {
-      try { const r = await api('/api/patches/update', { method: 'POST' }); notify(r.report || r.message || 'Update finished.'); }
+      try { const r = await post('/api/patches/update'); notify(r.report || r.message || 'Update finished.'); }
       catch (e) { notify('Update failed.', true); }
       return render();
     }
     if (act === 'upgrade') {
       try {
-        const r = await api('/api/patches/upgrade', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pr: Number(prVal) }) });
+        const r = await post('/api/patches/upgrade', { pr: Number(prVal) });
         notify(r.message || (r.ok ? 'Upgraded — restart to apply' : 'Upgrade failed'), !r.ok);
       } catch (e) { notify('Upgrade failed', true); }
       return render();
     }
     if ((act === 'remove' || act === 'reject') && !confirm(`${act} patch #${prVal}?`)) return;
     try {
-      const r = await api(`/api/patches/${act}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pr: Number(prVal) }) });
+      const r = await post(`/api/patches/${act}`, { pr: Number(prVal) });
       notify(r.message || (r.ok ? `${act} #${prVal} done` : `${act} failed`), !r.ok);
     } catch (e) { notify('Action failed.', true); }
     return render();
