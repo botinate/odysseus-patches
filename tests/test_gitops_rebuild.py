@@ -1,3 +1,5 @@
+import os
+
 from odysseus_patches.gitops import (
     APPLY_CONFLICT,
     APPLY_EMPTY,
@@ -12,6 +14,26 @@ from tests.conftest import git
 
 def tracked(pr, sha, title="a fix"):
     return Patch(pr=pr, title=title, pinned_sha=sha)
+
+
+def test_applies_without_a_global_git_identity(upstream, checkout, monkeypatch):
+    # CI runners, containers and fresh installs have no global git identity. A
+    # non-fast-forward `merge --squash` must still apply — it previously died
+    # with "Committer identity unknown" (rc 128), surfacing as a FALSE conflict
+    # from the second patch onward (the first was a fast-forward and slipped by).
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    first = upstream.open_pr(7, "src/fix.py", "FIX = True\n", "fix: first")
+    second = upstream.open_pr(9, "src/feature.py", "FEATURE = 1\n", "feat: second")
+    repo = GitRepo(checkout)
+    repo.fetch_pr_head(7)
+    repo.fetch_pr_head(9)
+    # the second patch is a real 3-way merge (non-ff) — the regression case
+    results = rebuild_patched(repo, "dev", [tracked(7, first), tracked(9, second)])
+    assert results == {7: APPLY_OK, 9: APPLY_OK}, results
 
 
 def test_clean_apply_creates_branch_with_patch_commit(upstream, checkout):
@@ -109,6 +131,15 @@ def test_two_clean_patches_both_apply(upstream, checkout):
     assert (checkout / "src" / "feature.py").exists()
     log = git("log", "--oneline", "-2", cwd=checkout)
     assert "[patch] PR#9" in log and "[patch] PR#7" in log
+
+
+def test_non_sha_pinned_never_reaches_git(upstream, checkout):
+    # defense-in-depth: a tampered/option-shaped pinned_sha is treated as a
+    # conflict, not passed as a bare `git merge` argument
+    repo = GitRepo(checkout)
+    results = rebuild_patched(repo, "dev", [tracked(7, "--upload-pack=touch /tmp/pwned")])
+    assert results == {7: APPLY_CONFLICT}
+    assert repo.is_dirty() is False
 
 
 def test_apply_pr_with_merge_commit(upstream, checkout):

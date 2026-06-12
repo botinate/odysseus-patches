@@ -12,10 +12,22 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from .manifest import Patch
+from .manifest import Patch, SHA_RE
 
 PATCHED_BRANCH = "patched"
 PR_REF = "refs/odypatches/pr/{pr}"
+
+# Every git invocation injects a hermetic identity (and disables gpg signing) so
+# artifact commits AND non-fast-forward `merge --squash` operations succeed where
+# no global git identity is configured — CI runners, containers, fresh installs.
+# Without it a real 3-way squash merge dies with "Committer identity unknown",
+# which surfaced (only on such machines) as a false 'conflict' from the second
+# patch onward; the first patch happened to be a fast-forward and slipped by.
+_GIT_IDENTITY = (
+    "-c", "user.name=odysseus-patches",
+    "-c", "user.email=odysseus-patches@local.invalid",
+)
+_GIT_BASE = ("git", "-c", "commit.gpgsign=false", *_GIT_IDENTITY)
 
 APPLY_OK = "applied"
 APPLY_CONFLICT = "conflict"
@@ -31,18 +43,8 @@ class GitRepo:
         self.root = Path(root)
 
     def run(self, *args: str, check: bool = True) -> str:
-        # For commit invocations, inject an identity so tests pass on CI machines
-        # that have no global git config (the sandbox GIT_CONFIG_GLOBAL=/dev/null
-        # suppresses identity in fixture-driven git() calls, but GitRepo inherits
-        # the process env; adding identity here is the pre-approved deviation).
-        extra_config: list[str] = []
-        if args and args[0] == "commit":
-            extra_config = [
-                "-c", "user.name=odysseus-patches",
-                "-c", "user.email=odysseus-patches@local.invalid",
-            ]
         proc = subprocess.run(
-            ["git", "-c", "commit.gpgsign=false", *extra_config, *args],
+            [*_GIT_BASE, *args],
             cwd=self.root,
             capture_output=True,
             text=True,
@@ -101,18 +103,24 @@ def rebuild_patched(repo: GitRepo, base_branch: str, patches: list[Patch]) -> di
     repo.run("checkout", "-B", PATCHED_BRANCH, base_branch)
     results: dict[int, str] = {}
     for patch in patches:
+        # defense-in-depth: never pass a non-SHA as a bare `git merge` argument
+        # (a leading-dash value would be read as an option). manifest.load()
+        # already enforces this; rebuild is also callable with in-memory patches.
+        if not isinstance(patch.pinned_sha, str) or not SHA_RE.match(patch.pinned_sha):
+            results[patch.pr] = APPLY_CONFLICT
+            continue
         local_ref = PR_REF.format(pr=patch.pr)
         # 3-way squash-merge the PR head onto the patched branch. Unlike
         # cherry-pick of a commit range, this handles PR branches that contain
         # merge commits (PRs updated by merging the base branch). It stages the
         # net change without committing; we commit it as one [patch] commit.
         proc = subprocess.run(
-            ["git", "-c", "commit.gpgsign=false", "merge", "--squash", patch.pinned_sha],
+            [*_GIT_BASE, "merge", "--squash", patch.pinned_sha],
             cwd=repo.root, capture_output=True, text=True,
         )
         if proc.returncode != 0:
             # real content conflict — abort and leave the branch clean
-            subprocess.run(["git", "merge", "--abort"], cwd=repo.root, capture_output=True, text=True)
+            subprocess.run([*_GIT_BASE, "merge", "--abort"], cwd=repo.root, capture_output=True, text=True)
             repo.run("reset", "--hard", "HEAD")
             results[patch.pr] = APPLY_CONFLICT
             continue
@@ -133,7 +141,7 @@ def _patch_id_of_diff(repo: GitRepo, diff_text: str) -> str:
     if not diff_text.strip():
         return ""
     proc = subprocess.run(
-        ["git", "patch-id", "--stable"],
+        [*_GIT_BASE, "patch-id", "--stable"],
         cwd=repo.root,
         input=diff_text,
         capture_output=True,
