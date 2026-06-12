@@ -55,3 +55,9 @@ jobs:
           python -m build
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Idempotent: this workflow fires on BOTH the tag push and a published
+          # GitHub release, so a tag-then-release sequence would otherwise try to
+          # upload the same version twice and fail. skip-existing makes the
+          # duplicate a no-op instead.
+          skip-existing: true
