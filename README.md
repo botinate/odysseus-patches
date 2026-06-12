@@ -154,9 +154,31 @@ and the MCP `patch_status` tool surface the same warnings.
 
 Applying a patch is running someone else's code. Mitigations: you review the
 diff(stat) at `add`/`upgrade` time; the SHA you reviewed is what keeps being
-applied; updates never adopt new PR content without an explicit `upgrade`. The
-web panel is admin-only (Odysseus's own login) and is excluded from the agent's
-generic API bridge, so the agent can report but never apply.
+applied; updates never adopt new PR content without an explicit `upgrade`.
+
+**The agent can propose, never apply.** Over MCP this is structural (a proposal
+is never built into the patched branch). The web panel's state-changing routes
+add an independent guard that refuses Odysseus's internal agent-loopback token
+*and* requires a per-request header, so the agent can't reach them through the
+generic API bridge even if Odysseus's blocklist changes — applying always needs
+a human in the UI/CLI. Read-only status/diff stay available to the agent.
+
+**`data/patches/manifest.json` and `config.json` are trust anchors.** The
+manifest decides which commit each patch is pinned to (what code gets applied on
+the next rebuild) and the config holds your API token (written `0600`,
+atomically, with no world-readable window). Both are validated strictly on load
+(types, hex SHAs, `owner/repo` and branch names that can't start with `-` or
+contain `..`, `http(s)` token endpoint) — but validation only blocks *malformed*
+input. Anything that can *write* these files with well-formed values can still
+change what runs, so protect them like source code.
+
+**Deployment boundary.** Two things the tool can't enforce for you:
+- **Don't give the agent filesystem write access to `data/patches/`.** The
+  agent's *propose-only* path is enforced in code, but an agent that can edit the
+  manifest directly sidesteps it. Keep that directory off the agent's tool reach.
+- **Keep the token endpoint loopback or HTTPS.** `odysseus_url` defaults to
+  `127.0.0.1`; if you point it at a remote host over plain `http`, the API token
+  rides the network in cleartext. Use `https://` for non-loopback hosts.
 
 ## License
 

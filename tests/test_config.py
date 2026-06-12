@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -46,3 +47,35 @@ def test_corrupt_file_raises(tmp_path):
     path.write_text("{nope", encoding="utf-8")
     with pytest.raises(ConfigError):
         Config.load(path)
+
+
+def test_rejects_non_http_url_on_load(tmp_path):
+    # the api_token is sent as a Bearer to odysseus_url — refuse scheme smuggling
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"odysseus_url": "file:///etc/passwd", "api_token": "x"}), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        Config.load(path)
+
+
+def test_rejects_bad_url_on_set(tmp_path):
+    cfg = Config.load(tmp_path / "config.json")
+    with pytest.raises(ConfigError):
+        cfg.set_value("odysseus_url", "javascript:alert(1)")
+
+
+def test_accepts_lan_https_url(tmp_path):
+    # host is intentionally not pinned to loopback — real remote installs work
+    cfg = Config.load(tmp_path / "config.json")
+    cfg.set_value("odysseus_url", "https://odysseus.lan:8443")
+    cfg.save()
+    assert Config.load(tmp_path / "config.json").odysseus_url == "https://odysseus.lan:8443"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_saved_config_is_owner_only(tmp_path):
+    # the file holds an API token — no group/other bits
+    path = tmp_path / "patches" / "config.json"
+    cfg = Config.load(path)
+    cfg.set_value("api_token", "sk-secret-token")
+    cfg.save()
+    assert path.stat().st_mode & 0o777 == 0o600, oct(path.stat().st_mode)

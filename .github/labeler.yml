@@ -1,0 +1,23 @@
+docs:
+  - changed-files:
+      - any-glob-to-any-file: ['**/*.md', 'docs/**']
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**']
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: ['tests/**']
+
+ui:
+  - changed-files:
+      - any-glob-to-any-file: ['odysseus_patches/ui_assets/**']
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'odysseus_patches/config.py'
+          - 'odysseus_patches/_fsutil.py'
+          - 'odysseus_patches/manifest.py'
+          - 'SECURITY.md'

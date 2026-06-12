@@ -25,6 +25,11 @@ import sys
 
 _CLI_TIMEOUT = 600
 _SCRIPT_TAG = '<script type="module" src="/static/js/patches.js"></script>'
+# A custom request header the panel's own fetches send on every state-changing
+# call. A cross-site page cannot set custom headers on a "simple" request, and a
+# cross-origin fetch that tries triggers a CORS preflight Odysseus rejects — so
+# requiring it blocks CSRF against a logged-in admin's browser.
+_CSRF_HEADER = "x-odypatch-csrf"
 
 
 def _cli_command():
@@ -51,15 +56,19 @@ def _cli_command():
     return None
 
 
-def _run_cli(checkout: str, args: list) -> tuple:
+def _run_cli(checkout: str, args: list, stdin: "str | None" = None) -> tuple:
     """Run the odysseus-patches CLI against `checkout`. Sync (used from a
-    thread executor in the async route). Module-level for testability."""
+    thread executor in the async route). Module-level for testability.
+
+    `stdin` feeds the child's stdin — used to pass secrets (the API token) to
+    `config set <key> -` so they never appear in the process argument list."""
     prefix = _cli_command()
     if prefix is None:
         return 127, "", "odysseus-patches CLI not installed"
     cmd = [*prefix, "-C", checkout, *args]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_CLI_TIMEOUT)
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=_CLI_TIMEOUT, input=stdin)
     except subprocess.TimeoutExpired:
         return 124, "", "patches CLI timed out"
     return proc.returncode, proc.stdout, proc.stderr
@@ -102,12 +111,39 @@ def _checkout_root() -> str:
 
 
 def setup_patches_ui_routes():
-    from fastapi import APIRouter, Request
+    from fastapi import APIRouter, HTTPException, Request
     from pydantic import BaseModel
     from core.middleware import require_admin
+    try:
+        from core.middleware import INTERNAL_TOOL_HEADER
+    except Exception:
+        INTERNAL_TOOL_HEADER = "X-Odysseus-Internal-Token"
 
     root = _checkout_root()
     router = APIRouter(tags=["patches-ui"])
+
+    def require_human_admin(request):
+        """Gate for state-changing routes. Beyond `require_admin` it:
+
+        (a) Refuses the in-process agent loopback. `require_admin` deliberately
+            grants any request carrying Odysseus's internal-tool token, which the
+            agent's `app_api` bridge sends — so admin-gating alone does NOT keep
+            the agent out. Rejecting that token here means a prompt-injected
+            agent can never apply/upgrade/remove/configure patches over HTTP; its
+            only mutating path stays the propose-only MCP server (human-gated).
+            This holds even if Odysseus's `app_api` blocklist patch silently
+            fails — it no longer depends on an upstream private symbol.
+
+        (b) Requires a custom header the panel sends, blocking browser CSRF.
+        """
+        require_admin(request)
+        state_user = getattr(getattr(request, "state", None), "current_user", None)
+        if request.headers.get(INTERNAL_TOOL_HEADER) or state_user == "internal-tool":
+            raise HTTPException(
+                403, "patches cannot be changed via the agent API bridge — "
+                     "use the propose-only MCP path; a human approves in the UI/CLI")
+        if not request.headers.get(_CSRF_HEADER):
+            raise HTTPException(403, "missing X-Odypatch-CSRF header")
 
     class PrBody(BaseModel):
         pr: int
@@ -119,8 +155,8 @@ def setup_patches_ui_routes():
     class ConfigBody(BaseModel):
         api_token: str
 
-    async def run(args):
-        return await asyncio.to_thread(_run_cli, root, args)
+    async def run(args, stdin=None):
+        return await asyncio.to_thread(_run_cli, root, args, stdin)
 
     @router.get("/api/patches/status")
     async def status(request: Request):
@@ -143,7 +179,7 @@ def setup_patches_ui_routes():
         return {"diff": out, "ok": code == 0, "message": _first_line(err)}
 
     async def _action(request, args):
-        require_admin(request)
+        require_human_admin(request)
         code, out, err = await run(args)
         return {"ok": code == 0, "message": _first_line(err) or _first_line(out), "exit_code": code}
 
@@ -165,13 +201,13 @@ def setup_patches_ui_routes():
 
     @router.post("/api/patches/update")
     async def update(request: Request):
-        require_admin(request)
+        require_human_admin(request)
         code, out, err = await run(["update"])
         return {"exit_code": code, "report": out, "ok": code in (0, 10), "message": _first_line(err)}
 
     @router.post("/api/patches/add")
     async def add(request: Request, body: AddBody):
-        require_admin(request)
+        require_human_admin(request)
         args = ["add", str(body.pr), "--yes"]
         if body.review:
             args.append("--review")
@@ -180,7 +216,7 @@ def setup_patches_ui_routes():
 
     @router.post("/api/patches/upgrade")
     async def upgrade(request: Request, body: PrBody):
-        require_admin(request)
+        require_human_admin(request)
         code, out, err = await run(["upgrade", str(body.pr), "--yes"])
         return {"ok": code == 0, "message": _first_line(err) or _first_line(out), "exit_code": code}
 
@@ -196,12 +232,13 @@ def setup_patches_ui_routes():
 
     @router.post("/api/patches/config")
     async def config_set(request: Request, body: ConfigBody):
-        require_admin(request)
+        require_human_admin(request)
         token = body.api_token.strip()
         if not token:
-            from fastapi import HTTPException
             raise HTTPException(422, "api_token is required")
-        code, out, err = await run(["config", "set", "api_token", token])
+        # Pass the token on stdin (`config set api_token -`) so it never lands
+        # in the process argument list (visible via `ps` to other local users).
+        code, out, err = await run(["config", "set", "api_token", "-"], stdin=token)
         return {"ok": code == 0, "message": _first_line(out) or _first_line(err), "exit_code": code}
 
     return router

@@ -248,7 +248,14 @@ def cmd_config(args: argparse.Namespace) -> int:
     checkout = find_checkout(args.checkout)
     config = Config.load(checkout / CONFIG_RELPATH)
     if args.action == "set":
-        config.set_value(args.key, args.value)
+        value = args.value
+        if value == "-":
+            # read the value from stdin so secrets (e.g. the API token) aren't
+            # exposed in the process argument list; the UI uses this path
+            value = sys.stdin.read().strip()
+            if not value:
+                raise CliError(f"no value for {args.key} received on stdin")
+        config.set_value(args.key, value)
         config.save()
         print(f"set {args.key}")
         return 0

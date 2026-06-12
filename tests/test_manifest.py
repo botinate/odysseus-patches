@@ -78,3 +78,106 @@ def test_save_is_valid_json_on_disk(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["version"] == 1
     assert data["patches"][0]["pr"] == 3055
+
+
+# --- the manifest is a trust anchor: reject tampered/malformed entries on load ---
+
+def _write_manifest(path, patches, upstream="pewdiepie-archdaemon/odysseus", base_branch="dev"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"version": 1, "upstream": upstream, "base_branch": base_branch, "patches": patches}),
+        encoding="utf-8",
+    )
+
+
+_OK = {"pr": 7, "title": "x", "pinned_sha": "a" * 40}
+
+
+def test_rejects_non_int_pr(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [{"pr": '7"><img src=x onerror=alert(1)>', "title": "x", "pinned_sha": "a" * 40}])
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_non_sha_pinned(tmp_path):
+    # an option-shaped value must never be trusted into a git argument
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [{"pr": 7, "title": "x", "pinned_sha": "--output=/etc/cron.d/x"}])
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_unknown_status(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [{"pr": 7, "title": "x", "pinned_sha": "a" * 40, "status": "totally-applied"}])
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_unknown_proposer(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [{"pr": 7, "title": "x", "pinned_sha": "a" * 40, "proposer": "root"}])
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_bad_upstream(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [_OK], upstream="../../etc/passwd")
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_bad_base_branch(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [_OK], base_branch="dev; rm -rf /")
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_leading_dash_base_branch(tmp_path):
+    # '-f' would be read as a git option: `git checkout -f`
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [_OK], base_branch="-f")
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_traversal_base_branch(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [_OK], base_branch="../evil")
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_leading_dash_upstream(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [_OK], upstream="-owner/repo")
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_traversal_upstream(tmp_path):
+    # owner/.. would walk the GitHub API path
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [_OK], upstream="owner/..")
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_rejects_non_dict_review(tmp_path):
+    # a non-object review crashes (p.review or {}).get(...) in list/status
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [{"pr": 7, "title": "x", "pinned_sha": "a" * 40, "review": "CLEAR"}])
+    with pytest.raises(ManifestError):
+        Manifest.load(path)
+
+
+def test_accepts_valid_short_sha_and_agent_proposal(tmp_path):
+    path = tmp_path / "manifest.json"
+    _write_manifest(path, [{"pr": 7, "title": "x", "pinned_sha": "abc1234",
+                            "status": "proposed", "proposer": "agent"}])
+    m = Manifest.load(path)
+    assert m.get(7).pinned_sha == "abc1234"
+    assert m.get(7).proposer == "agent"

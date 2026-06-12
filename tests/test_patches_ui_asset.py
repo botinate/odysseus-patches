@@ -68,8 +68,9 @@ def test_run_cli_builds_command(monkeypatch):
         stdout = '{"ok": true}'
         stderr = ""
 
-    def fake_run(cmd, capture_output, text, timeout):
+    def fake_run(cmd, capture_output, text, timeout, input=None):
         seen["cmd"] = cmd
+        seen["input"] = input
         return FakeProc()
 
     monkeypatch.setattr(mod, "_cli_command", lambda: ["/bin/odysseus-patches"])

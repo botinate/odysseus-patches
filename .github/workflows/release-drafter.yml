@@ -1,0 +1,21 @@
+name: Release Drafter
+
+# Keeps a draft GitHub Release continuously up to date from merged PRs, grouped
+# by label. Releases stay a one-click, consistent affair — no manual changelog.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # manage the draft release
+      pull-requests: read
+    steps:
+      - uses: release-drafter/release-drafter@6a93d829887aa2e0748befe2e808c66c0ec6e4c7 # v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

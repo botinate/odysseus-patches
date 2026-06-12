@@ -1,0 +1,17 @@
+name: Labeler
+
+# Auto-labels PRs by which files they touch. Silent and low-noise; feeds the
+# release-drafter categories. Uses pull_request_target so PRs from forks get
+# labelled too — actions/labeler only reads the file list via the API and never
+# checks out or runs PR code, so this is safe with the write token.
+on: [pull_request_target]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
