@@ -11,8 +11,10 @@ def test_config_set_and_show(checkout, capsys):
     capsys.readouterr()
     assert cli.main(["-C", str(checkout), "config", "show"]) == 0
     out = capsys.readouterr().out
+    # The token is never echoed, not even its last few chars; show only status.
     assert "sk-abc-1234" not in out
-    assert "1234" in out
+    assert "1234" not in out
+    assert '"api_token": "(set)"' in out
 
 
 def test_config_set_unknown_key_errors(checkout, capsys):

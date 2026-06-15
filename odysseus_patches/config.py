@@ -69,7 +69,8 @@ class Config:
         setattr(self, key, value)
 
     def redacted_dict(self) -> dict:
-        token = "(not set)"
-        if self.api_token:
-            token = "****" + self.api_token[-4:]
+        # Never echo any part of the token. Even the last few characters are
+        # sensitive material and would leak into `config show` output and logs,
+        # so we only report whether a token is configured.
+        token = "(set)" if self.api_token else "(not set)"
         return {"odysseus_url": self.odysseus_url, "api_token": token}

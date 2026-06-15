@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odysseus-patches"
-version = "0.3.0"
+version = "0.3.1"
 description = "Apply and manage upstream PR patches on a self-hosted Odysseus install"
 readme = "README.md"
 requires-python = ">=3.10"

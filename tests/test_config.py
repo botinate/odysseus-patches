@@ -32,8 +32,10 @@ def test_redacted_dict_hides_token(tmp_path):
     cfg = Config.load(tmp_path / "config.json")
     cfg.set_value("api_token", "sk-secret-abcdef")
     red = cfg.redacted_dict()
+    # No part of the token (not even the last 4 chars) may appear in output.
     assert "sk-secret-abcdef" not in str(red)
-    assert red["api_token"].endswith("cdef")
+    assert "cdef" not in str(red)
+    assert red["api_token"] == "(set)"
     assert red["odysseus_url"] == cfg.odysseus_url
 
 
