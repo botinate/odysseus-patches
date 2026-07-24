@@ -19,7 +19,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       # Intentionally do NOT configure a global git identity here. The tool must
@@ -49,7 +49,7 @@ jobs:
           sudo apt-get install -y git
       - name: git version (visibility)
         run: git --version
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install
